@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>El Cobrador del Waaagh · Torneos</title>
+  <link rel="icon" href="/img/logo.png">
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Saltar al contenido</a>
+
+  <header class="site-header" id="site-header" hidden>
+    <img src="/img/logo.png" alt="El Cobrador del Waaagh" class="logo">
+    <nav id="main-nav" aria-label="Principal">
+      <button type="button" class="btn nav-btn" data-view="view-tournaments">Torneos</button>
+      <button type="button" class="btn nav-btn" data-view="view-admin" id="admin-link" hidden>Administración</button>
+      <button type="button" class="btn nav-btn" id="logout-btn">Salir</button>
+    </nav>
+    <p class="whoami">Sesión: <strong id="user-name"></strong></p>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <p id="global-msg" class="msg" role="alert"></p>
+
+    <!-- LOGIN -->
+    <section id="view-login" class="view" aria-labelledby="login-title">
+      <div class="panel narrow">
+        <img src="/img/logo.png" alt="" class="logo-big">
+        <h1 id="login-title">Iniciar sesión</h1>
+        <form id="login-form">
+          <div class="field">
+            <label for="login-username">Usuario</label>
+            <input id="login-username" name="username" autocomplete="username" required>
+          </div>
+          <div class="field">
+            <label for="login-password">Contraseña</label>
+            <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+          </div>
+          <button class="btn primary" type="submit">Entrar</button>
+          <p id="login-msg" class="msg" role="status" aria-live="polite"></p>
+        </form>
+        <p class="muted">Las cuentas las gestiona el administrador.</p>
+      </div>
+    </section>
+
+    <!-- LISTA Y ALTA DE TORNEOS -->
+    <section id="view-tournaments" class="view" aria-labelledby="tournaments-title" hidden>
+      <h1 id="tournaments-title">Mis torneos</h1>
+      <div class="layout">
+        <section class="panel" aria-labelledby="create-title">
+          <h2 id="create-title">Nuevo torneo</h2>
+          <form id="tournament-form">
+            <fieldset class="field-group">
+              <legend>Tipo de juego</legend>
+              <div id="game-options"></div>
+            </fieldset>
+
+            <div class="field">
+              <label for="t-name">Nombre del torneo</label>
+              <input id="t-name" name="tournamentName" maxlength="80" required>
+            </div>
+
+            <div class="field">
+              <label for="t-team">Nombre de tu equipo</label>
+              <input id="t-team" name="teamName" maxlength="80" required>
+            </div>
+
+            <fieldset class="field-group">
+              <legend>¿Cómo quieres preparar el torneo?</legend>
+              <div class="choice-wrap">
+                <input type="radio" id="mode-manual" name="setupMode" value="manual" checked>
+                <label for="mode-manual">Crear desde cero</label>
+              </div>
+              <div class="choice-wrap">
+                <input type="radio" id="mode-bcp" name="setupMode" value="bcp">
+                <label for="mode-bcp">Importar desde Best Coast Pairings</label>
+              </div>
+            </fieldset>
+
+            <div class="field" id="field-ppt">
+              <label for="t-ppt">Número de jugadores por equipo</label>
+              <input id="t-ppt" name="playersPerTeam" type="number" min="1" max="20" inputmode="numeric" required>
+            </div>
+
+            <div class="field">
+              <label for="t-link" id="link-label">Enlace del torneo (opcional)</label>
+              <input id="t-link" name="link" type="url" inputmode="url" placeholder="https://">
+              <small class="hint" id="link-hint">Puedes dejarlo vacío.</small>
+            </div>
+
+            <button class="btn" type="submit">Crear torneo</button>
+            <p id="tournament-msg" class="msg" role="status"></p>
+          </form>
+        </section>
+
+        <section aria-labelledby="list-title">
+          <h2 id="list-title" class="sr-only">Lista de torneos</h2>
+          <p id="tournament-empty" class="muted" hidden>Todavía no tienes torneos. Crea el primero.</p>
+          <ul id="tournament-list" class="card-list" aria-label="Lista de torneos"></ul>
+        </section>
+      </div>
+    </section>
+
+    <!-- DETALLE DE UN TORNEO -->
+    <section id="view-tournament" class="view" aria-labelledby="detail-title" hidden>
+      <button type="button" class="btn nav-btn back-btn" id="back-btn">← Volver a mis torneos</button>
+      <h1 id="detail-title" tabindex="-1"></h1>
+      <dl class="facts" id="detail-facts"></dl>
+      <p id="detail-msg" class="msg" role="status" tabindex="-1"></p>
+      <div id="detail-body"></div>
+    </section>
+
+    <!-- ADMINISTRACIÓN -->
+    <section id="view-admin" class="view" aria-labelledby="admin-title" hidden>
+      <h1 id="admin-title">Administración de usuarios</h1>
+      <div class="layout">
+        <div class="panel">
+          <h2>Crear usuario</h2>
+          <form id="user-form">
+            <div class="field">
+              <label for="new-username">Nombre de usuario</label>
+              <input id="new-username" name="username" maxlength="30" required>
+              <small class="hint">De 3 a 30 caracteres: letras, números, punto, guion o guion bajo.</small>
+            </div>
+            <button class="btn primary" type="submit">Crear usuario</button>
+          </form>
+          <p id="user-msg" class="msg" role="status" aria-live="polite"></p>
+          <div id="temp-password" class="temp-box" tabindex="-1" hidden></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <caption>Usuarios registrados</caption>
+            <thead>
+              <tr>
+                <th scope="col">Usuario</th>
+                <th scope="col">Estado</th>
+                <th scope="col">Torneos</th>
+                <th scope="col">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="users-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- CAMBIO DE CONTRASEÑA (solo cuando es obligatorio) -->
+    <section id="view-password" class="view" aria-labelledby="password-title" hidden>
+      <div class="panel narrow">
+        <h1 id="password-title">Cambiar contraseña</h1>
+        <p id="password-intro" class="muted"></p>
+        <form id="password-form">
+          <div class="field">
+            <label for="current-password">Contraseña actual</label>
+            <input id="current-password" name="currentPassword" type="password" autocomplete="current-password" required>
+          </div>
+          <div class="field">
+            <label for="new-password">Nueva contraseña</label>
+            <input id="new-password" name="newPassword" type="password" autocomplete="new-password" minlength="8" required>
+            <small class="hint">Mínimo 8 caracteres.</small>
+          </div>
+          <div class="field">
+            <label for="confirm-password">Repite la nueva contraseña</label>
+            <input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required>
+          </div>
+          <button class="btn primary" type="submit">Guardar contraseña</button>
+          <p id="password-msg" class="msg" role="status" aria-live="polite"></p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <script src="/js/app.js" defer></script>
+</body>
+</html>
