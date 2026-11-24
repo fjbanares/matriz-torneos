@@ -1,0 +1,86 @@
+{
+  "_origen": "Extraído del HTML de la pestaña Roster que facilitaste (evento \"Evento de Prueba\"). Ejecutado con la lógica del lector.",
+  "title": "Evento de Prueba",
+  "teams": [
+    {
+      "name": "Team A",
+      "players": [
+        {
+          "name": "David Maestro",
+          "army": "Adepta Sororitas",
+          "disposition": "Priority Assets"
+        },
+        {
+          "name": "Fher Cobrador",
+          "army": "Orks",
+          "disposition": "Reconnaissance"
+        },
+        {
+          "name": "Miku Cumplido Gomez - El Cobrador del Waaagh",
+          "army": "Necrons",
+          "disposition": "Priority Assets"
+        }
+      ]
+    },
+    {
+      "name": "Team B",
+      "players": [
+        {
+          "name": "Alberto González",
+          "army": "Adeptus Mechanicus",
+          "disposition": "Take and Hold"
+        },
+        {
+          "name": "Alvaro Silas",
+          "army": "Dark Angels",
+          "disposition": "Reconnaissance"
+        },
+        {
+          "name": "Fernandito El Bekario",
+          "army": "Death Guard",
+          "disposition": "Priority Assets"
+        }
+      ]
+    },
+    {
+      "name": "Team C",
+      "players": [
+        {
+          "name": "Alfonso Fernandez",
+          "army": "Adeptus Custodes",
+          "disposition": "Take and Hold"
+        },
+        {
+          "name": "Gr0m -",
+          "army": "Leagues of Votann",
+          "disposition": "Disruption"
+        },
+        {
+          "name": "Noel Fernández Álvarez - Cobrador",
+          "army": "Blood Angels",
+          "disposition": "Purge the Foe"
+        }
+      ]
+    },
+    {
+      "name": "Team D",
+      "players": [
+        {
+          "name": "Farelo : ( - Hijos de la Disformidad",
+          "army": "Emperor's Children",
+          "disposition": "Reconnaissance"
+        },
+        {
+          "name": "Fausto Bañares",
+          "army": "Thousand Sons",
+          "disposition": "Priority Assets"
+        },
+        {
+          "name": "Stefan \"Guwop\" - Zothique Wargames",
+          "army": "Astra Militarum",
+          "disposition": "Disruption"
+        }
+      ]
+    }
+  ]
+}

@@ -8,169 +8,268 @@
   <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
-  <a class="skip-link" href="#main">Saltar al contenido</a>
+  <a class="skip" href="#main">Saltar al contenido</a>
 
-  <header class="site-header" id="site-header" hidden>
-    <img src="/img/logo.png" alt="El Cobrador del Waaagh" class="logo">
-    <nav id="main-nav" aria-label="Principal">
-      <button type="button" class="btn nav-btn" data-view="view-tournaments">Torneos</button>
-      <button type="button" class="btn nav-btn" data-view="view-admin" id="admin-link" hidden>Administración</button>
-      <button type="button" class="btn nav-btn" id="logout-btn">Salir</button>
-    </nav>
-    <p class="whoami">Sesión: <strong id="user-name"></strong></p>
-  </header>
+  <div class="app">
+    <header class="site" id="site" hidden>
+      <img src="/img/logo.png" alt="El Cobrador del Waaagh" class="logo">
+      <nav class="site-nav" aria-label="Principal">
+        <button type="button" class="btn nav-btn" data-go="list">Torneos</button>
+        <button type="button" class="btn nav-btn" data-go="admin" id="nav-admin" hidden>Administración</button>
+        <button type="button" class="btn nav-btn" id="nav-logout">Salir</button>
+      </nav>
+      <span class="whoami">Sesión: <strong id="who"></strong></span>
+    </header>
 
-  <main id="main" tabindex="-1">
-    <p id="global-msg" class="msg" role="alert"></p>
+    <main id="main" class="main" tabindex="-1">
+      <p id="global-msg" class="msg" role="alert"></p>
 
-    <!-- LOGIN -->
-    <section id="view-login" class="view" aria-labelledby="login-title">
-      <div class="panel narrow">
-        <img src="/img/logo.png" alt="" class="logo-big">
-        <h1 id="login-title">Iniciar sesión</h1>
-        <form id="login-form">
-          <div class="field">
-            <label for="login-username">Usuario</label>
-            <input id="login-username" name="username" autocomplete="username" required>
-          </div>
-          <div class="field">
-            <label for="login-password">Contraseña</label>
-            <input id="login-password" name="password" type="password" autocomplete="current-password" required>
-          </div>
-          <button class="btn primary" type="submit">Entrar</button>
-          <p id="login-msg" class="msg" role="status" aria-live="polite"></p>
-        </form>
-        <p class="muted">Las cuentas las gestiona el administrador.</p>
+      <div class="confirm" id="confirm" role="group" aria-label="Confirmación" hidden>
+        <p id="confirm-text"></p>
+        <button type="button" class="btn danger" id="confirm-yes">Sí</button>
+        <button type="button" class="btn ghost" id="confirm-no">Cancelar</button>
       </div>
-    </section>
 
-    <!-- LISTA Y ALTA DE TORNEOS -->
-    <section id="view-tournaments" class="view" aria-labelledby="tournaments-title" hidden>
-      <h1 id="tournaments-title">Mis torneos</h1>
-      <div class="layout">
-        <section class="panel" aria-labelledby="create-title">
-          <h2 id="create-title">Nuevo torneo</h2>
-          <form id="tournament-form">
-            <fieldset class="field-group">
-              <legend>Tipo de juego</legend>
-              <div id="game-options"></div>
-            </fieldset>
-
+      <!-- LOGIN -->
+      <section class="view view-center" id="v-login" aria-labelledby="login-title">
+        <div class="panel narrow">
+          <img src="/img/logo.png" alt="" class="logo-big">
+          <h1 id="login-title" tabindex="-1">Iniciar sesión</h1>
+          <form id="login-form">
             <div class="field">
-              <label for="t-name">Nombre del torneo</label>
-              <input id="t-name" name="tournamentName" maxlength="80" required>
+              <label for="login-username">Usuario</label>
+              <input id="login-username" name="username" autocomplete="username" required>
             </div>
-
             <div class="field">
-              <label for="t-team">Nombre de tu equipo</label>
-              <input id="t-team" name="teamName" maxlength="80" required>
+              <label for="login-password">Contraseña</label>
+              <input id="login-password" name="password" type="password" autocomplete="current-password" required>
             </div>
-
-            <fieldset class="field-group">
-              <legend>¿Cómo quieres preparar el torneo?</legend>
-              <div class="choice-wrap">
-                <input type="radio" id="mode-manual" name="setupMode" value="manual" checked>
-                <label for="mode-manual">Crear desde cero</label>
-              </div>
-              <div class="choice-wrap">
-                <input type="radio" id="mode-bcp" name="setupMode" value="bcp">
-                <label for="mode-bcp">Importar desde Best Coast Pairings</label>
-              </div>
-            </fieldset>
-
-            <div class="field" id="field-ppt">
-              <label for="t-ppt">Número de jugadores por equipo</label>
-              <input id="t-ppt" name="playersPerTeam" type="number" min="1" max="20" inputmode="numeric" required>
-            </div>
-
-            <div class="field">
-              <label for="t-link" id="link-label">Enlace del torneo (opcional)</label>
-              <input id="t-link" name="link" type="url" inputmode="url" placeholder="https://">
-              <small class="hint" id="link-hint">Puedes dejarlo vacío.</small>
-            </div>
-
-            <button class="btn" type="submit">Crear torneo</button>
-            <p id="tournament-msg" class="msg" role="status"></p>
+            <button class="btn primary" type="submit">Entrar</button>
+            <p id="login-msg" class="msg" role="status"></p>
           </form>
+          <p class="muted">Las cuentas las gestiona el administrador.</p>
+        </div>
+      </section>
+
+      <!-- LISTA DE TORNEOS -->
+      <section class="view list-view" id="v-list" aria-labelledby="list-title" hidden>
+        <div class="list-head">
+          <h1 id="list-title" tabindex="-1">Mis torneos</h1>
+          <div class="list-actions">
+            <button type="button" class="btn" id="open-guide">Cómo funciona</button>
+            <button type="button" class="btn primary" id="open-new">+ Nuevo torneo</button>
+          </div>
+        </div>
+        <p class="muted" id="t-empty" hidden>Todavía no tienes torneos. Crea el primero.</p>
+        <ul class="t-list" id="t-list" aria-label="Lista de torneos"></ul>
+      </section>
+
+      <!-- TORNEO ABIERTO -->
+      <section class="view tournament-view" id="v-tournament" aria-labelledby="tournament-title" hidden>
+        <div class="t-toolbar">
+          <button type="button" class="btn" data-action="back">← Mis torneos</button>
+          <div class="t-title">
+            <h1 id="tournament-title" tabindex="-1"></h1>
+            <p class="meta" id="tournament-meta"></p>
+          </div>
+          <div class="t-tools">
+            <span class="save-status" id="save-status" aria-live="polite"></span>
+          </div>
+        </div>
+        <div class="tabs-bar" id="tabs" role="tablist" aria-label="Matrices del torneo"></div>
+        <section class="panel matrix-panel" id="matrix-panel" role="tabpanel" tabindex="-1"></section>
+      </section>
+
+      <!-- ADMINISTRACIÓN -->
+      <section class="view" id="v-admin" aria-labelledby="admin-title" hidden>
+        <h1 id="admin-title" tabindex="-1">Administración</h1>
+        <section class="admin-block" aria-labelledby="block-users-h">
+        <h2 id="block-users-h" class="block-title">1 · Usuarios</h2>
+        <div class="layout">
+          <div class="panel">
+            <h2>Crear usuario</h2>
+            <form id="user-form">
+              <div class="field">
+                <label for="new-username">Nombre de usuario</label>
+                <input id="new-username" maxlength="30" required>
+                <small class="hint">De 3 a 30 caracteres: letras, números, punto, guion o guion bajo.</small>
+              </div>
+              <button class="btn primary" type="submit">Crear usuario</button>
+            </form>
+            <p id="user-msg" class="msg" role="status"></p>
+            <div id="temp-box" class="temp-box" tabindex="-1" hidden></div>
+          </div>
+          <div class="table-wrap">
+            <table class="admin-table">
+              <caption>Usuarios registrados</caption>
+              <thead><tr><th scope="col">Usuario</th><th scope="col">Estado</th><th scope="col">Torneos</th><th scope="col">Acciones</th></tr></thead>
+              <tbody id="users-body"></tbody>
+            </table>
+          </div>
+        </div>
         </section>
-
-        <section aria-labelledby="list-title">
-          <h2 id="list-title" class="sr-only">Lista de torneos</h2>
-          <p id="tournament-empty" class="muted" hidden>Todavía no tienes torneos. Crea el primero.</p>
-          <ul id="tournament-list" class="card-list" aria-label="Lista de torneos"></ul>
+        <section class="admin-block" aria-labelledby="block-meta-h">
+          <h2 id="block-meta-h" class="block-title">2 · Datos de meta</h2>
+          <div id="meta-admin" class="meta-admin"></div>
         </section>
-      </div>
-    </section>
+      </section>
 
-    <!-- DETALLE DE UN TORNEO -->
-    <section id="view-tournament" class="view" aria-labelledby="detail-title" hidden>
-      <button type="button" class="btn nav-btn back-btn" id="back-btn">← Volver a mis torneos</button>
-      <h1 id="detail-title" tabindex="-1"></h1>
-      <dl class="facts" id="detail-facts"></dl>
-      <p id="detail-msg" class="msg" role="status" tabindex="-1"></p>
-      <div id="detail-body"></div>
-    </section>
+      <section class="view guide-view" id="v-guide" aria-labelledby="guide-h" hidden>
+        <div class="guide-head">
+          <button type="button" class="btn" id="guide-back">← Mis torneos</button>
+          <h1 id="guide-h" tabindex="-1">Cómo funciona la herramienta</h1>
+        </div>
 
-    <!-- ADMINISTRACIÓN -->
-    <section id="view-admin" class="view" aria-labelledby="admin-title" hidden>
-      <h1 id="admin-title">Administración de usuarios</h1>
-      <div class="layout">
-        <div class="panel">
-          <h2>Crear usuario</h2>
-          <form id="user-form">
+        <article class="guide-item">
+          <h2>1 · La matriz</h2>
+          <p>Cada torneo tiene una pestaña por rival. Una matriz es una cuadrícula: las <strong>filas</strong> son tus jugadores y las <strong>columnas</strong> son los jugadores del rival. Cada jugador tiene su nombre, su ejército y su disposición. Cada casilla es el cruce de un jugador tuyo con un jugador rival.</p>
+          <p>Hay dos formas de empezar:</p>
+          <ul>
+            <li><strong>A mano:</strong> defines tu equipo y añades cada rival en su matriz.</li>
+            <li><strong>Desde un torneo de Best Coast Pairings (BCP):</strong> pegas el enlace del evento, eliges tu equipo y la herramienta crea el torneo con el roster de jugadores y sus ejércitos ya cargados, y una matriz por cada equipo rival.</li>
+          </ul>
+          <p>Tus jugadores se comparten con todas las matrices. La última fila y la última columna muestran el promedio.</p>
+        </article>
+
+        <article class="guide-item">
+          <h2>2 · Valoración del 1 al 7</h2>
+          <p>Cada casilla tiene un número del 1 al 7 que indica cómo le va a ese jugador tuyo frente a ese rival. Así se lee cada valor:</p>
+          <ul class="legend-list"><li><span class="sc-1 gchip">1</span><span>0 - 2 puntos WTC - Perder de 41 o más puntos</span></li><li><span class="sc-2 gchip">2</span><span>3 - 5 puntos WTC - Perder entre 26 y 40 puntos</span></li><li><span class="sc-3 gchip">3</span><span>6 - 8 puntos WTC - Perder entre 11 y 25 puntos</span></li><li><span class="sc-4 gchip">4</span><span>9 - 11 puntos WTC - Ganar o perder de 10 puntos o menos</span></li><li><span class="sc-5 gchip">5</span><span>12 - 14 puntos WTC - Ganar entre 11 y 25 puntos</span></li><li><span class="sc-6 gchip">6</span><span>15 - 17 puntos WTC - Ganar entre 26 y 40 puntos</span></li><li><span class="sc-7 gchip">7</span><span>18 - 20 puntos WTC - Gana de 41 o más puntos</span></li></ul>
+        </article>
+
+        <article class="guide-item">
+          <h2>3 · Ocultar filas y columnas</h2>
+          <p class="guide-icon-row"><span class="eye guide-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
+          <span>Con el ojo abierto, la fila o la columna está visible. Púlsalo para ocultarla: queda un hueco con el ojo tachado.</span></p>
+          <p class="guide-icon-row"><span class="eye guide-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path d="M3 3l18 18"/></svg></span>
+          <span>Con el ojo tachado, está oculta. Púlsalo de nuevo para volver a mostrarla.</span></p>
+        </article>
+
+        <article class="guide-item">
+          <h2>4 · Varita mágica</h2>
+          <p class="guide-icon-row"><span class="wand guide-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 20L14 10"/><path d="M15 4l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/><path d="M19 12l.7 1.3 1.3.7-1.3.7-.7 1.3-.7-1.3-1.3-.7 1.3-.7z"/></svg></span>
+          <span>Pulsa la varita junto a un jugador para rellenar su fila con valores sugeridos.</span></p>
+          <p>Los valores salen de los datos de meta que carga el administrador a partir de Listhammer, tras el último balance (dataslate). Para cada cruce entre dos ejércitos se usan todas las partidas registradas, sin tener en cuenta las listas ni las disposiciones, y el valor se calcula a partir de la diferencia media de puntos de esas partidas.</p>
+          <p>Si un cruce no tiene datos, su casilla queda vacía. Solo puede calcularse una varita a la vez: mientras lo hace, la matriz queda bloqueada.</p>
+        </article>
+
+        <article class="guide-item">
+          <h2>5 · Estrella: elegir mapa</h2>
+          <p class="guide-icon-row"><span class="star guide-icon" aria-pressed="false" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.9L12 17.8 5.8 21l1.2-6.9-5-4.9 6.9-1z"/></svg></span>
+          <span>Sin estrella: no hace falta elegir mapa en ese enfrentamiento.</span></p>
+          <p class="guide-icon-row"><span class="star guide-icon" aria-pressed="true" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.9L12 17.8 5.8 21l1.2-6.9-5-4.9 6.9-1z"/></svg></span>
+          <span>Con estrella: ese jugador necesita elegir mapa en ese enfrentamiento. Pulsa la estrella de la casilla para marcarla o desmarcarla.</span></p>
+        </article>
+      </section>
+
+      <!-- CAMBIO DE CONTRASEÑA OBLIGATORIO -->
+      <section class="view view-center" id="v-password" aria-labelledby="password-title" hidden>
+        <div class="panel narrow">
+          <h1 id="password-title" tabindex="-1">Cambia tu contraseña</h1>
+          <p class="muted">Tu contraseña es temporal. Debes cambiarla para continuar.</p>
+          <form id="password-form">
             <div class="field">
-              <label for="new-username">Nombre de usuario</label>
-              <input id="new-username" name="username" maxlength="30" required>
-              <small class="hint">De 3 a 30 caracteres: letras, números, punto, guion o guion bajo.</small>
+              <label for="current-password">Contraseña actual</label>
+              <input id="current-password" type="password" autocomplete="current-password" required>
             </div>
-            <button class="btn primary" type="submit">Crear usuario</button>
+            <div class="field">
+              <label for="new-password">Nueva contraseña</label>
+              <input id="new-password" type="password" autocomplete="new-password" minlength="8" required>
+              <small class="hint">Mínimo 8 caracteres.</small>
+            </div>
+            <div class="field">
+              <label for="confirm-password">Repite la nueva contraseña</label>
+              <input id="confirm-password" type="password" autocomplete="new-password" minlength="8" required>
+            </div>
+            <button class="btn primary" type="submit">Guardar contraseña</button>
+            <p id="password-msg" class="msg" role="status"></p>
           </form>
-          <p id="user-msg" class="msg" role="status" aria-live="polite"></p>
-          <div id="temp-password" class="temp-box" tabindex="-1" hidden></div>
         </div>
-        <div class="table-wrap">
-          <table>
-            <caption>Usuarios registrados</caption>
-            <thead>
-              <tr>
-                <th scope="col">Usuario</th>
-                <th scope="col">Estado</th>
-                <th scope="col">Torneos</th>
-                <th scope="col">Acciones</th>
-              </tr>
-            </thead>
-            <tbody id="users-body"></tbody>
-          </table>
+      </section>
+    </main>
+  </div>
+
+  <!-- LEYENDA DE COLORES DE LA MATRIZ -->
+  <dialog id="legend-dialog" class="list-dlg" aria-labelledby="legend-title">
+    <div class="list-dlg-body">
+      <h2 id="legend-title">Leyenda de colores</h2>
+      <ul class="legend-list"><li><span class="sc-1 gchip">1</span><span>0 - 2 puntos WTC - Perder de 41 o más puntos</span></li><li><span class="sc-2 gchip">2</span><span>3 - 5 puntos WTC - Perder entre 26 y 40 puntos</span></li><li><span class="sc-3 gchip">3</span><span>6 - 8 puntos WTC - Perder entre 11 y 25 puntos</span></li><li><span class="sc-4 gchip">4</span><span>9 - 11 puntos WTC - Ganar o perder de 10 puntos o menos</span></li><li><span class="sc-5 gchip">5</span><span>12 - 14 puntos WTC - Ganar entre 11 y 25 puntos</span></li><li><span class="sc-6 gchip">6</span><span>15 - 17 puntos WTC - Ganar entre 26 y 40 puntos</span></li><li><span class="sc-7 gchip">7</span><span>18 - 20 puntos WTC - Gana de 41 o más puntos</span></li></ul>
+      <div class="dlg-actions">
+        <button type="button" class="btn primary" data-action="legend-close">Cerrar</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- LISTA DE UN RIVAL (texto pegado a mano; se guarda al cerrar) -->
+  <dialog id="list-dialog" class="list-dlg" aria-labelledby="list-dialog-title">
+    <div class="list-dlg-body">
+      <h2 id="list-dialog-title">Lista del rival</h2>
+      <p class="hint">Pega aquí la lista del rival en texto. Los cambios se guardan al cerrar.</p>
+      <textarea id="list-text" class="list-text" rows="18" spellcheck="false" aria-label="Texto de la lista del rival"></textarea>
+      <div class="dlg-actions">
+        <button type="button" class="btn primary" data-action="list-close">Cerrar y guardar</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- NUEVO TORNEO (diálogo modal con dos caminos: desde cero o desde BCP) -->
+  <dialog id="new-dialog" aria-labelledby="new-title">
+    <form id="new-form" novalidate>
+      <h2 id="new-title">Nuevo torneo</h2>
+
+      <div class="field">
+        <label for="nt-game">Tipo de juego</label>
+        <select id="nt-game"></select>
+      </div>
+
+      <fieldset class="field fieldset">
+        <legend>¿Cómo quieres crear el torneo?</legend>
+        <label class="choice"><input type="radio" name="mode" value="manual" checked> Crear desde cero</label>
+        <label class="choice"><input type="radio" name="mode" value="bcp"> Importar desde Best Coast Pairings</label>
+      </fieldset>
+
+      <div id="mode-manual">
+        <div class="field">
+          <label for="nt-name">Nombre del torneo</label>
+          <input id="nt-name" maxlength="80">
+        </div>
+        <div class="field">
+          <label for="nt-team">Nombre de tu equipo</label>
+          <input id="nt-team" maxlength="80">
+        </div>
+        <div class="field">
+          <label for="nt-ppt">Jugadores por equipo</label>
+          <select id="nt-ppt"></select>
+          <small class="hint">Tu matriz tendrá tantas filas y columnas como jugadores.</small>
         </div>
       </div>
-    </section>
 
-    <!-- CAMBIO DE CONTRASEÑA (solo cuando es obligatorio) -->
-    <section id="view-password" class="view" aria-labelledby="password-title" hidden>
-      <div class="panel narrow">
-        <h1 id="password-title">Cambiar contraseña</h1>
-        <p id="password-intro" class="muted"></p>
-        <form id="password-form">
+      <div id="mode-bcp" hidden>
+        <div class="field">
+          <label for="nt-link">Enlace del evento en Best Coast Pairings</label>
+          <input id="nt-link" type="url" inputmode="url" placeholder="https://www.bestcoastpairings.com/event/...">
+          <small class="hint">Pega el enlace de tu evento. Leeremos los equipos y los jugadores.</small>
+        </div>
+        <button type="button" class="btn" id="bcp-read">Leer evento</button>
+        <div id="bcp-result" hidden>
+          <p class="muted" id="bcp-title"></p>
           <div class="field">
-            <label for="current-password">Contraseña actual</label>
-            <input id="current-password" name="currentPassword" type="password" autocomplete="current-password" required>
+            <label for="nt-bcp-team">¿Cuál es tu equipo?</label>
+            <select id="nt-bcp-team"></select>
           </div>
-          <div class="field">
-            <label for="new-password">Nueva contraseña</label>
-            <input id="new-password" name="newPassword" type="password" autocomplete="new-password" minlength="8" required>
-            <small class="hint">Mínimo 8 caracteres.</small>
-          </div>
-          <div class="field">
-            <label for="confirm-password">Repite la nueva contraseña</label>
-            <input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required>
-          </div>
-          <button class="btn primary" type="submit">Guardar contraseña</button>
-          <p id="password-msg" class="msg" role="status" aria-live="polite"></p>
-        </form>
+        </div>
       </div>
-    </section>
-  </main>
 
+      <p class="msg" id="new-msg" role="status"></p>
+      <pre class="bcp-debug" id="bcp-debug" tabindex="0" aria-label="Detalles técnicos del fallo" hidden></pre>
+      <div class="dlg-actions">
+        <button type="submit" class="btn primary" id="new-submit">Crear torneo</button>
+        <button type="button" class="btn ghost" data-action="close-new">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <p id="status" class="sr-only" role="status" aria-live="polite"></p>
   <script src="/js/app.js" defer></script>
 </body>
 </html>

@@ -1,0 +1,53 @@
+# Todo el entorno en contenedores: base de datos, aplicación y navegador para la importación de BCP.
+# Solo necesitas Docker Desktop (gratis para uso personal).
+#
+#   docker compose up -d --build     # arranca todo (la primera vez tarda varios minutos)
+#   docker compose logs -f app       # ver los logs de la aplicación
+#   docker compose down              # para todo (los datos se conservan)
+#   docker compose down -v           # para todo y borra la base de datos
+#
+# La aplicación queda en http://localhost:3000
+services:
+  db:
+    image: postgres:16
+    container_name: cobrador-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cobrador
+      POSTGRES_PASSWORD: cobrador_dev
+      POSTGRES_DB: cobrador
+    # Necesario para `npm run dev` en el Mac (la app corre fuera de Docker y se conecta a localhost:5432)
+    ports:
+      - "5432:5432"
+    volumes:
+      - cobrador-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cobrador -d cobrador"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    container_name: cobrador-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # Variables de .env (JWT_SECRET, ADMIN_USERNAME, ADMIN_PASSWORD...)
+    env_file: .env
+    # Estos valores sustituyen a los de .env dentro del contenedor
+    environment:
+      DATABASE_URL: postgres://cobrador:cobrador_dev@db:5432/cobrador
+      PGSSL: "false"
+      NODE_ENV: development
+    ports:
+      - "3000:3000"
+    # Chromium necesita memoria compartida suficiente
+    shm_size: "1gb"
+    init: true
+    volumes:
+      - ./debug:/app/debug
+
+volumes:
+  cobrador-pgdata:

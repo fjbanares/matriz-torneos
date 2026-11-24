@@ -6,14 +6,30 @@ const GAMES = {
     label: 'Warhammer 40.000',
     available: true,
     factions: [
-      'Emperors Children',
+      'Adepta Sororitas',
+      'Black Templars',
+      'Blood Angels',
+      'Dark Angels',
+      'Deathwatch',
+      'Adeptus Custodes',
+      'Adeptus Mechanicus',
+      'Aeldari',
+      'Astra Militarum',
+      'Chaos Daemons',
+      'Chaos Knights',
+      'Chaos Space Marines',
+      'Death Guard',
+      'Drukhari',
+      'Emperor’s Children',
       'Genestealer Cults',
       'Grey Knights',
+      'Imperial Agents',
       'Imperial Knights',
       'Leagues of Votann',
       'Necrons',
       'Orks',
       'Space Marines',
+      'Space Wolves',
       'T’au Empire',
       'Thousand Sons',
       'Tyranids',
@@ -36,6 +52,7 @@ const DISPOSITIONS = [
   { key: 'purge-the-foe', label: 'Purge the Foe', color: 'rojo' },
 ];
 
-const MAX_PLAYERS = 20;
+const MIN_PLAYERS = 3;
+const MAX_PLAYERS = 8;
 
-module.exports = { GAMES, DISPOSITIONS, MAX_PLAYERS };
+module.exports = { GAMES, DISPOSITIONS, MIN_PLAYERS, MAX_PLAYERS };

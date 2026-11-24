@@ -1,0 +1,22 @@
+{
+  "_ejemplo": "DATOS FICTICIOS. Muestran la forma de la salida de fetchEvent(url), no datos reales de BCP.",
+  "title": "Torneo de ejemplo",
+  "teams": [
+    {
+      "name": "Los Lobos",
+      "players": [
+        { "name": "Jugador A", "army": "Space Marines", "disposition": "Disruption" },
+        { "name": "Jugador B", "army": "Orks", "disposition": "Priority Assets" },
+        { "name": "Jugador C", "army": "Necrons", "disposition": "Take and Hold" }
+      ]
+    },
+    {
+      "name": "Corsarios",
+      "players": [
+        { "name": "Rival 1", "army": "Tyranids", "disposition": "Reconnaissance" },
+        { "name": "Rival 2", "army": "Aeldari", "disposition": "Purge the Foe" },
+        { "name": "Rival 3", "army": "T’au Empire", "disposition": "Disruption" }
+      ]
+    }
+  ]
+}

@@ -1,92 +1,39 @@
 const express = require('express');
 const { pool } = require('../db');
 const { parseId } = require('../auth');
-const { GAMES, DISPOSITIONS, MAX_PLAYERS } = require('../config');
+const { GAMES, DISPOSITIONS, MIN_PLAYERS, MAX_PLAYERS } = require('../config');
+const { validateTournamentInput, validateState } = require('../validate');
+const { replaceState } = require('../store');
+const { isBcpEventUrl } = require('../validate');
+const { fetchEvent, BcpError } = require('../bcp/fetch');
+const { buildFromImport, summarize } = require('../bcp/normalize');
 
-// Montado en /api/tournaments con requireAuth.
-// Cada usuario solo ve y gestiona sus propios torneos.
+// Montado en /api/tournaments con requireAuth. Cada usuario solo accede a sus torneos.
 const router = express.Router();
 
-const str = (v) => String(v ?? '').trim();
-
-function isHttpUrl(value) {
-  try {
-    const u = new URL(value);
-    return u.protocol === 'https:' || u.protocol === 'http:';
-  } catch {
-    return false;
-  }
-}
-
-function isBcpUrl(value) {
-  if (!isHttpUrl(value)) return false;
-  return /(^|\.)bestcoastpairings\.com$/i.test(new URL(value).hostname);
-}
-
-const publicTournament = (t) => ({
+const summary = (t) => ({
   id: t.id,
-  name: t.name,
+  title: t.name,
+  teamName: t.team_name,
   game: t.game,
   gameLabel: GAMES[t.game]?.label ?? t.game,
-  teamName: t.team_name,
-  link: t.link,
-  setupMode: t.setup_mode,
   playersPerTeam: t.players_per_team,
+  matrixCount: t.matrix_count,
   createdAt: t.created_at,
 });
 
-// Devuelve el torneo solo si pertenece al usuario actual
 async function ownTournament(id, userId) {
-  const { rows } = await pool.query(
-    'SELECT * FROM tournaments WHERE id = $1 AND owner_id = $2',
-    [id, userId]
-  );
+  const { rows } = await pool.query('SELECT * FROM tournaments WHERE id = $1 AND owner_id = $2', [id, userId]);
   return rows[0] ?? null;
 }
 
-// Devuelve la matriz solo si su torneo pertenece al usuario actual
-async function ownMatrix(matrixId, userId) {
-  const { rows } = await pool.query(
-    `SELECT m.id, m.kind, t.id AS tournament_id, t.game, t.players_per_team
-     FROM matrices m JOIN tournaments t ON t.id = m.tournament_id
-     WHERE m.id = $1 AND t.owner_id = $2`,
-    [matrixId, userId]
-  );
-  return rows[0] ?? null;
-}
-
-// Devuelve el jugador solo si su torneo pertenece al usuario actual
-async function ownPlayer(playerId, userId) {
-  const { rows } = await pool.query(
-    `SELECT mp.id, m.id AS matrix_id
-     FROM matrix_players mp
-     JOIN matrices m ON m.id = mp.matrix_id
-     JOIN tournaments t ON t.id = m.tournament_id
-     WHERE mp.id = $1 AND t.owner_id = $2`,
-    [playerId, userId]
-  );
-  return rows[0] ?? null;
-}
-
-async function countPlayers(matrixId) {
-  const { rows } = await pool.query(
-    'SELECT COUNT(*)::int AS n FROM matrix_players WHERE matrix_id = $1',
-    [matrixId]
-  );
-  return rows[0].n;
-}
-
-// ---------- Catálogos ----------
+// ---------- Catálogo ----------
 
 router.get('/meta', (req, res) => {
   res.json({
-    games: Object.entries(GAMES).map(([key, g]) => ({
-      key,
-      label: g.label,
-      available: g.available,
-      factions: g.factions,
-    })),
+    games: Object.entries(GAMES).map(([key, g]) => ({ key, label: g.label, available: g.available, factions: g.factions })),
     dispositions: DISPOSITIONS,
+    minPlayers: MIN_PLAYERS,
     maxPlayers: MAX_PLAYERS,
   });
 });
@@ -95,62 +42,33 @@ router.get('/meta', (req, res) => {
 
 router.get('/', async (req, res) => {
   const { rows } = await pool.query(
-    'SELECT * FROM tournaments WHERE owner_id = $1 ORDER BY created_at DESC',
+    `SELECT t.*, (SELECT COUNT(*)::int FROM matrices m WHERE m.tournament_id = t.id) AS matrix_count
+     FROM tournaments t WHERE t.owner_id = $1 ORDER BY t.created_at DESC`,
     [req.user.id]
   );
-  res.json({ tournaments: rows.map(publicTournament) });
+  res.json({ tournaments: rows.map(summary) });
 });
 
 router.post('/', async (req, res) => {
-  const body = req.body ?? {};
-  const name = str(body.name);
-  const teamName = str(body.teamName);
-  const link = str(body.link);
-  const gameType = str(body.gameType);
-  const setupMode = str(body.setupMode);
+  const v = validateTournamentInput(req.body ?? {});
+  if (v.error) return res.status(400).json({ error: v.error });
+  const { name, teamName, game, playersPerTeam, link } = v.value;
 
-  const game = GAMES[gameType];
-  if (!game || !game.available) {
-    return res.status(400).json({ error: 'Elige un tipo de juego disponible' });
-  }
-  if (!name || name.length > 80) {
-    return res.status(400).json({ error: 'El nombre del torneo debe tener entre 1 y 80 caracteres' });
-  }
-  if (!teamName || teamName.length > 80) {
-    return res.status(400).json({ error: 'Indica el nombre de tu equipo (1 a 80 caracteres)' });
-  }
-
-  let playersPerTeam = null;
-  if (setupMode === 'bcp') {
-    if (!isBcpUrl(link)) {
-      return res.status(400).json({ error: 'Introduce un enlace válido de Best Coast Pairings' });
-    }
-  } else if (setupMode === 'manual') {
-    if (link && (!isHttpUrl(link) || link.length > 300)) {
-      return res.status(400).json({ error: 'El enlace no es válido' });
-    }
-    playersPerTeam = Number(body.playersPerTeam);
-    if (!Number.isInteger(playersPerTeam) || playersPerTeam < 1 || playersPerTeam > MAX_PLAYERS) {
-      return res.status(400).json({ error: `Indica entre 1 y ${MAX_PLAYERS} jugadores por equipo` });
-    }
-  } else {
-    return res.status(400).json({ error: 'Elige cómo preparar el torneo' });
-  }
-
-  // Torneo y matriz propia en una sola transacción
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      `INSERT INTO tournaments (owner_id, name, game, team_name, link, setup_mode, players_per_team)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [req.user.id, name, gameType, teamName, link || null, setupMode, playersPerTeam]
+      `INSERT INTO tournaments (owner_id, name, team_name, game, setup_mode, link, players_per_team)
+       VALUES ($1, $2, $3, $4, 'manual', $5, $6) RETURNING id`,
+      [req.user.id, name, teamName, game, link, playersPerTeam]
     );
-    if (setupMode === 'manual') {
-      await client.query(`INSERT INTO matrices (tournament_id, kind) VALUES ($1, 'own')`, [rows[0].id]);
-    }
+    await client.query(
+      `INSERT INTO tournament_players (tournament_id, slot)
+       SELECT $1, generate_series(0, $2::int - 1)`,
+      [rows[0].id, playersPerTeam]
+    );
     await client.query('COMMIT');
-    res.status(201).json({ tournament: publicTournament(rows[0]) });
+    res.status(201).json({ id: rows[0].id });
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -159,128 +77,162 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Detalle: torneo, tu equipo (compartido) y las matrices de rivales
+// Estado completo del torneo: jugadores propios y todas sus matrices
 router.get('/:id', async (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: 'Identificador no válido' });
 
-  const tournament = await ownTournament(id, req.user.id);
-  if (!tournament) return res.status(404).json({ error: 'Torneo no encontrado' });
+  const t = await ownTournament(id, req.user.id);
+  if (!t) return res.status(404).json({ error: 'Torneo no encontrado' });
 
-  const { rows: matrices } = await pool.query(
-    'SELECT id, kind, rival_name FROM matrices WHERE tournament_id = $1 ORDER BY id',
-    [id]
-  );
-  const { rows: players } = await pool.query(
-    `SELECT mp.id, mp.matrix_id, mp.name, mp.faction
-     FROM matrix_players mp JOIN matrices m ON m.id = mp.matrix_id
-     WHERE m.tournament_id = $1 ORDER BY mp.id`,
-    [id]
-  );
+  const n = t.players_per_team;
+  const [players, matrices] = await Promise.all([
+    pool.query('SELECT slot, name, faction, disposition FROM tournament_players WHERE tournament_id = $1', [id]),
+    pool.query('SELECT id, position, rival_name FROM matrices WHERE tournament_id = $1 ORDER BY position', [id]),
+  ]);
 
-  const playersOf = (matrixId) =>
-    players
-      .filter((p) => p.matrix_id === matrixId)
-      .map((p) => ({ id: p.id, name: p.name, faction: p.faction }));
+  const mids = matrices.rows.map((m) => m.id);
+  const empty = { rows: [] };
+  const [rivals, rowFlags, cells, mapFlags] = mids.length
+    ? await Promise.all([
+        pool.query('SELECT matrix_id, slot, name, faction, disposition, hidden, list_text, list_url FROM matrix_rivals WHERE matrix_id = ANY($1::int[])', [mids]),
+        pool.query('SELECT matrix_id, slot, hidden FROM matrix_rows WHERE matrix_id = ANY($1::int[])', [mids]),
+        pool.query('SELECT matrix_id, row_slot, col_slot, score FROM matrix_cells WHERE matrix_id = ANY($1::int[])', [mids]),
+        pool.query('SELECT matrix_id, row_slot, col_slot FROM matrix_map_flags WHERE matrix_id = ANY($1::int[])', [mids]),
+      ])
+    : [empty, empty, empty, empty];
 
-  const own = matrices.find((m) => m.kind === 'own');
-  res.json({
-    tournament: publicTournament(tournament),
-    ownMatrixId: own?.id ?? null,
-    ownPlayers: own ? playersOf(own.id) : [],
-    rivalMatrices: matrices
-      .filter((m) => m.kind === 'rival')
-      .map((m) => ({ id: m.id, rivalName: m.rival_name, players: playersOf(m.id) })),
+  const slotList = Array.from({ length: n }, (_, s) => s);
+  const own = slotList.map((s) => {
+    const p = players.rows.find((r) => r.slot === s);
+    return { name: p?.name ?? '', faction: p?.faction ?? '', disposition: p?.disposition ?? '' };
   });
+
+  const out = matrices.rows.map((m) => {
+    const rv = rivals.rows.filter((r) => r.matrix_id === m.id);
+    const rw = rowFlags.rows.filter((r) => r.matrix_id === m.id);
+    const cl = cells.rows.filter((c) => c.matrix_id === m.id);
+    const mf = mapFlags.rows.filter((f) => f.matrix_id === m.id);
+
+    const grid = slotList.map(() => Array(n).fill(null));
+    cl.forEach((c) => { grid[c.row_slot][c.col_slot] = c.score; });
+    const mapGrid = slotList.map(() => Array(n).fill(false));
+    mf.forEach((f) => { mapGrid[f.row_slot][f.col_slot] = true; });
+
+    return {
+      id: m.id,
+      rivalName: m.rival_name,
+      rivals: slotList.map((s) => {
+        const r = rv.find((x) => x.slot === s);
+        return { name: r?.name ?? '', faction: r?.faction ?? '', disposition: r?.disposition ?? '', listText: r?.list_text ?? '', listUrl: r?.list_url ?? null };
+      }),
+      hiddenCols: slotList.map((s) => rv.find((x) => x.slot === s)?.hidden ?? false),
+      hiddenRows: slotList.map((s) => rw.find((x) => x.slot === s)?.hidden ?? false),
+      cells: grid,
+      mapCells: mapGrid,
+    };
+  });
+
+  res.json({
+    id: t.id,
+    title: t.name,
+    teamName: t.team_name,
+    game: t.game,
+    gameLabel: GAMES[t.game]?.label ?? t.game,
+    playersPerTeam: n,
+    own,
+    matrices: out,
+  });
+});
+
+// Guarda el estado completo (la pantalla envía todo cada vez que hay cambios)
+router.put('/:id', async (req, res) => {
+  const id = parseId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Identificador no válido' });
+
+  const t = await ownTournament(id, req.user.id);
+  if (!t) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+  const v = validateState(req.body ?? {}, t.game);
+  if (v.error) return res.status(400).json({ error: v.error });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await replaceState(client, id, v.value);
+    await client.query('COMMIT');
+    res.json({ ok: true, savedAt: new Date().toISOString() });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+});
+
+// ---------- Importación desde Best Coast Pairings ----------
+
+const BCP_LINK_ERROR = 'El enlace debe ser de un evento de Best Coast Pairings (https://www.bestcoastpairings.com/event/...)';
+
+// Paso 1: leer el evento y devolver sus equipos para que el usuario elija el suyo
+router.post('/bcp/preview', async (req, res) => {
+  const link = String(req.body?.link ?? '').trim();
+  if (!isBcpEventUrl(link)) return res.status(400).json({ error: BCP_LINK_ERROR });
+  try {
+    const data = await fetchEvent(link);
+    res.json(summarize(data));
+  } catch (err) {
+    if (err instanceof BcpError) return res.status(err.status).json({ error: err.message, details: err.details });
+    throw err;
+  }
+});
+
+// Paso 2: crear el torneo con las matrices generadas a partir del equipo elegido
+router.post('/bcp/import', async (req, res) => {
+  const link = String(req.body?.link ?? '').trim();
+  const teamName = String(req.body?.teamName ?? '').trim();
+  if (!isBcpEventUrl(link)) return res.status(400).json({ error: BCP_LINK_ERROR });
+  if (!teamName || teamName.length > 80) return res.status(400).json({ error: 'Elige tu equipo' });
+
+  let data;
+  try {
+    data = await fetchEvent(link);
+  } catch (err) {
+    if (err instanceof BcpError) return res.status(err.status).json({ error: err.message, details: err.details });
+    throw err;
+  }
+
+  const built = buildFromImport(data, teamName, '40k');
+  if (built.error) return res.status(400).json({ error: built.error });
+  const check = validateState(built.value, '40k');
+  if (check.error) return res.status(400).json({ error: check.error });
+  const v = check.value;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `INSERT INTO tournaments (owner_id, name, team_name, game, setup_mode, link, players_per_team)
+       VALUES ($1, $2, $3, '40k', 'bcp', $4, $5) RETURNING id`,
+      [req.user.id, v.title, v.teamName, link, v.playersPerTeam]
+    );
+    await replaceState(client, rows[0].id, v);
+    await client.query('COMMIT');
+    res.status(201).json({ id: rows[0].id, warnings: built.warnings });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 });
 
 router.delete('/:id', async (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: 'Identificador no válido' });
 
-  const { rowCount } = await pool.query(
-    'DELETE FROM tournaments WHERE id = $1 AND owner_id = $2',
-    [id, req.user.id]
-  );
+  const { rowCount } = await pool.query('DELETE FROM tournaments WHERE id = $1 AND owner_id = $2', [id, req.user.id]);
   if (rowCount === 0) return res.status(404).json({ error: 'Torneo no encontrado' });
-  res.status(204).end();
-});
-
-// ---------- Matrices de rivales ----------
-
-router.post('/:id/rival-matrices', async (req, res) => {
-  const id = parseId(req.params.id);
-  if (!id) return res.status(400).json({ error: 'Identificador no válido' });
-
-  const tournament = await ownTournament(id, req.user.id);
-  if (!tournament) return res.status(404).json({ error: 'Torneo no encontrado' });
-  if (tournament.setup_mode !== 'manual') {
-    return res.status(400).json({ error: 'Las matrices de rivales se crean a mano en torneos sin BCP' });
-  }
-
-  const rivalName = str(req.body?.rivalName);
-  if (!rivalName || rivalName.length > 80) {
-    return res.status(400).json({ error: 'El nombre del equipo rival debe tener entre 1 y 80 caracteres' });
-  }
-
-  const { rows } = await pool.query(
-    `INSERT INTO matrices (tournament_id, kind, rival_name) VALUES ($1, 'rival', $2) RETURNING id, rival_name`,
-    [id, rivalName]
-  );
-  res.status(201).json({ matrix: { id: rows[0].id, rivalName: rows[0].rival_name, players: [] } });
-});
-
-router.delete('/matrices/:matrixId', async (req, res) => {
-  const matrixId = parseId(req.params.matrixId);
-  if (!matrixId) return res.status(400).json({ error: 'Identificador no válido' });
-
-  const matrix = await ownMatrix(matrixId, req.user.id);
-  if (!matrix) return res.status(404).json({ error: 'Matriz no encontrada' });
-  if (matrix.kind === 'own') {
-    return res.status(400).json({ error: 'La matriz de tu equipo no se puede eliminar' });
-  }
-
-  await pool.query('DELETE FROM matrices WHERE id = $1', [matrixId]);
-  res.status(204).end();
-});
-
-// ---------- Jugadores ----------
-
-router.post('/matrices/:matrixId/players', async (req, res) => {
-  const matrixId = parseId(req.params.matrixId);
-  if (!matrixId) return res.status(400).json({ error: 'Identificador no válido' });
-
-  const matrix = await ownMatrix(matrixId, req.user.id);
-  if (!matrix) return res.status(404).json({ error: 'Matriz no encontrada' });
-
-  const name = str(req.body?.name);
-  const faction = str(req.body?.faction);
-  if (!name || name.length > 60) {
-    return res.status(400).json({ error: 'El nombre del jugador debe tener entre 1 y 60 caracteres' });
-  }
-  const validFactions = GAMES[matrix.game]?.factions ?? [];
-  if (!validFactions.includes(faction)) {
-    return res.status(400).json({ error: 'Elige una facción de la lista' });
-  }
-  if ((await countPlayers(matrixId)) >= matrix.players_per_team) {
-    return res.status(400).json({ error: `Este equipo ya tiene ${matrix.players_per_team} jugadores` });
-  }
-
-  const { rows } = await pool.query(
-    'INSERT INTO matrix_players (matrix_id, name, faction) VALUES ($1, $2, $3) RETURNING id, name, faction',
-    [matrixId, name, faction]
-  );
-  res.status(201).json({ player: rows[0] });
-});
-
-router.delete('/players/:playerId', async (req, res) => {
-  const playerId = parseId(req.params.playerId);
-  if (!playerId) return res.status(400).json({ error: 'Identificador no válido' });
-
-  const player = await ownPlayer(playerId, req.user.id);
-  if (!player) return res.status(404).json({ error: 'Jugador no encontrado' });
-
-  await pool.query('DELETE FROM matrix_players WHERE id = $1', [playerId]);
   res.status(204).end();
 });
 
