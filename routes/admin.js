@@ -198,4 +198,25 @@ router.get('/meta/:game/export', async (req, res) => {
   res.send(buffer);
 });
 
+// Diagnóstico del navegador de BCP dentro del contenedor (solo superadmin)
+router.get('/bcp-diagnostic', (req, res) => {
+  const fs = require('fs');
+  const os = require('os');
+  const out = {
+    user: (() => { try { return os.userInfo().username; } catch { return null; } })(),
+    PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH ?? null,
+    browsersDirExists: fs.existsSync('/ms-playwright'),
+    browsersDirEntries: (() => { try { return fs.readdirSync('/ms-playwright'); } catch (e) { return e.code; } })(),
+  };
+  try {
+    const { chromium } = require('playwright');
+    const exe = chromium.executablePath();
+    out.executablePath = exe;
+    out.executableExists = fs.existsSync(exe);
+  } catch (e) {
+    out.playwrightError = String(e.message).split('\n')[0];
+  }
+  res.json(out);
+});
+
 module.exports = router;

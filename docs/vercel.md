@@ -127,25 +127,39 @@ A partir de ahora, cada vez que cambies el código, repite `vercel --prod`.
 ## Solución de problemas
 
 ### `Executable doesn't exist at /home/…/.cache/ms-playwright/…`
-Vercel ejecuta el contenedor con un usuario distinto de `root`, y Playwright busca el navegador en la carpeta personal de ese usuario. La imagen oficial de Playwright instala Chromium en `/ms-playwright`.
+Significa que Playwright busca el navegador en la carpeta personal del usuario del contenedor, y no en `/ms-playwright`. Eso ocurre cuando la variable `PLAYWRIGHT_BROWSERS_PATH` no llega al contenedor.
 
-**Solución:**
-1. El `Dockerfile` ya define `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`. Vuelve a desplegar para que lo tome.
-2. Añade la misma variable en **Environment Variables** de Vercel (`PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`).
-3. Comprueba la ruta en local, con un usuario que no sea `root`:
-   ```bash
-   docker build -t cobrador-vercel .
-   docker run --rm --user 1000 -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright cobrador-vercel \
-     node -e "const {chromium}=require('playwright'); console.log(chromium.executablePath())"
-   ```
-   Debe imprimir una ruta que empiece por `/ms-playwright/`. Si lo hace pero en Vercel sigue fallando, pégame los logs.
+El `Dockerfile` ya instala Chromium en `/ms-playwright` durante la construcción y define la variable. Para aplicarlo:
 
-### Si el navegador no está en la imagen
-Si la comprobación anterior dice que el archivo no existe, la imagen no trae Chromium en esa ruta. Hay que instalarlo en la construcción, añadiendo en el `Dockerfile` (después de `npm install`):
-```dockerfile
-RUN npx playwright install chromium
+1. Confirma que **Vercel construye con el `Dockerfile` nuevo**: en el panel, revisa el commit del último despliegue y que el paso de construcción incluya `npx playwright install chromium`.
+2. Añade `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright` en **Environment Variables** de Vercel y **redespliega sin caché** (`vercel --prod --force`).
+3. Si sigue fallando, pégame el registro de construcción del despliegue. Lo que buscamos es si el paso `npx playwright install chromium` se ejecutó y terminó bien.
+
+**Comprobación en local, antes de desplegar** (con un usuario que no sea `root`):
+```bash
+docker build -t cobrador-vercel .
+docker run --rm --user 1000 cobrador-vercel \
+  node -e "const {chromium}=require('playwright'); console.log(chromium.executablePath()); console.log(require('fs').existsSync(chromium.executablePath()))"
 ```
-Esto aumenta el tamaño de la imagen. Revisa de nuevo el límite del registro de Vercel.
+Debe imprimir una ruta que empiece por `/ms-playwright/` y después `true`.
+
+## Solución definitiva para BCP en Vercel: Chromium serverless
+
+La diagnóstico (`/api/admin/bcp-diagnostic`) mostró que `/ms-playwright` no existe dentro del contenedor de Vercel. El navegador instalado durante la construcción no llega al entorno de ejecución. Para evitarlo, usa Chromium empaquetado para funciones serverless.
+
+**Pasos:**
+
+1. Instala las dependencias en tu proyecto. Elige versiones compatibles entre sí: la tabla de compatibilidad está en la página de `@sparticuz/chromium` (https://www.npmjs.com/package/@sparticuz/chromium):
+   ```bash
+   npm install @sparticuz/chromium playwright-core@1.47.2
+   ```
+   Después de instalar, revisa que `package.json` contenga ambas dependencias.
+2. Confirma con `vercel --prod` que el despliegue se construye sin errores.
+3. En **Environment Variables** de Vercel añade `BCP_CHROMIUM=serverless`.
+4. Vuelve a desplegar y prueba la importación de BCP. La primera importación tardará más, porque Chromium se descomprime en `/tmp`.
+5. Si falla, pega el mensaje de error completo.
+
+Esta ruta no se usa en local, donde sigue funcionando Playwright normal. No la he probado contra Vercel desde aquí.
 
 ## Limitaciones y riesgos
 

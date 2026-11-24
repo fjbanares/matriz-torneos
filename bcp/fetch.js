@@ -19,6 +19,24 @@ class BcpError extends Error {
 }
 
 async function launchBrowser() {
+  // Entorno serverless (Vercel): Chromium empaquetado con @sparticuz/chromium.
+  // Se activa con BCP_CHROMIUM=serverless. Requiere instalar @sparticuz/chromium y playwright-core.
+  if (process.env.BCP_CHROMIUM === 'serverless') {
+    let chromiumPkg;
+    let core;
+    try {
+      chromiumPkg = require('@sparticuz/chromium');
+      core = require('playwright-core');
+    } catch (err) {
+      throw new BcpError(`Falta @sparticuz/chromium o playwright-core (${err.message.split('\n')[0]})`, 500);
+    }
+    return core.chromium.launch({
+      args: chromiumPkg.args,
+      executablePath: await chromiumPkg.executablePath(),
+      headless: true,
+    });
+  }
+
   let playwright;
   try {
     playwright = require('playwright');
