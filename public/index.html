@@ -37,7 +37,7 @@
           <h1 id="login-title" tabindex="-1">Iniciar sesión</h1>
           <form id="login-form">
             <div class="field">
-              <label for="login-username">Usuario</label>
+              <label for="login-username">Usuario o email</label>
               <input id="login-username" name="username" autocomplete="username" required>
             </div>
             <div class="field">
@@ -114,6 +114,7 @@
             <p class="meta" id="tournament-meta"></p>
           </div>
           <div class="t-tools">
+            <button type="button" class="btn small" data-action="share-open" id="share-open" hidden>Compartir</button>
             <span class="save-status" id="save-status" aria-live="polite"></span>
           </div>
         </div>
@@ -257,6 +258,59 @@
       <ul class="legend-list"><li><span class="sc-1 gchip">1</span><span>0 - 2 puntos WTC - Perder de 41 o más puntos</span></li><li><span class="sc-2 gchip">2</span><span>3 - 5 puntos WTC - Perder entre 26 y 40 puntos</span></li><li><span class="sc-3 gchip">3</span><span>6 - 8 puntos WTC - Perder entre 11 y 25 puntos</span></li><li><span class="sc-4 gchip">4</span><span>9 - 11 puntos WTC - Ganar o perder de 10 puntos o menos</span></li><li><span class="sc-5 gchip">5</span><span>12 - 14 puntos WTC - Ganar entre 11 y 25 puntos</span></li><li><span class="sc-6 gchip">6</span><span>15 - 17 puntos WTC - Ganar entre 26 y 40 puntos</span></li><li><span class="sc-7 gchip">7</span><span>18 - 20 puntos WTC - Gana de 41 o más puntos</span></li></ul>
       <div class="dlg-actions">
         <button type="button" class="btn primary" data-action="legend-close">Cerrar</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- EDITAR USUARIO (administración) -->
+  <dialog id="user-edit-dialog" class="list-dlg" aria-labelledby="user-edit-title">
+    <form id="user-edit-form" class="list-dlg-body">
+      <h2 id="user-edit-title">Editar usuario</h2>
+      <p class="hint">El nombre de usuario no se puede cambiar.</p>
+      <div class="field">
+        <label for="edit-display">Nombre</label>
+        <input id="edit-display" maxlength="80" required>
+      </div>
+      <div class="field">
+        <label for="edit-email">Email</label>
+        <input id="edit-email" type="email" maxlength="120" required>
+      </div>
+      <div class="field">
+        <label for="edit-team">Equipo</label>
+        <input id="edit-team" maxlength="80">
+      </div>
+      <div class="field">
+        <label for="edit-profile">Perfil</label>
+        <select id="edit-profile">
+          <option value="user">Usuario</option>
+          <option value="superadmin">Superadministrador</option>
+        </select>
+      </div>
+      <p id="user-edit-msg" class="msg" role="status"></p>
+      <div class="dlg-actions">
+        <button type="submit" class="btn primary">Guardar cambios</button>
+        <button type="button" class="btn" data-action="user-edit-close">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- COMPARTIR TORNEO (solo propietario) -->
+  <dialog id="share-dialog" class="list-dlg" aria-labelledby="share-title">
+    <div class="list-dlg-body">
+      <h2 id="share-title">Compartir torneo</h2>
+      <p class="hint">Los usuarios que elijas podrán editar el torneo y sus matrices. Solo tú puedes borrarlo y decidir quién tiene acceso.</p>
+      <h3>Con acceso</h3>
+      <ul id="share-members" class="share-list"></ul>
+      <form id="share-form" class="share-add">
+        <div class="field">
+          <label for="share-candidate">Añadir usuario</label>
+          <select id="share-candidate"></select>
+        </div>
+        <button class="btn primary" type="submit">Compartir</button>
+      </form>
+      <p id="share-msg" class="msg" role="status"></p>
+      <div class="dlg-actions">
+        <button type="button" class="btn primary" data-action="share-close">Cerrar</button>
       </div>
     </div>
   </dialog>

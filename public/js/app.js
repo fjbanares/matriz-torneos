@@ -20,6 +20,7 @@ const S = {
   activeId: null,    // matriz visible
   pending: null,     // acción pendiente de confirmar
   busyRow: null,     // fila en la que se están calculando sugerencias
+  adminUsers: [],   // usuarios del panel de administración
   bcpEvent: null,    // datos del evento leídos en la validación de BCP
   listEdit: null,    // lista de rival que se está editando
   dirty: false,      // hay cambios sin guardar
@@ -279,11 +280,12 @@ function renderList() {
     <li class="t-item">
       <div>
         <h3>${esc(t.title)}</h3>
+        ${t.isOwner ? '' : `<p class="badge">Compartido por ${esc(t.ownerName || 'otro usuario')}</p>`}
         <p class="muted">${esc(t.teamName)} · ${esc(t.gameLabel)} · ${t.playersPerTeam} × ${t.playersPerTeam} · ${t.matrixCount} ${t.matrixCount === 1 ? 'matriz' : 'matrices'}</p>
       </div>
       <div class="t-actions">
         <button type="button" class="btn" data-action="open" data-id="${t.id}">Abrir<span class="sr-only"> ${esc(t.title)}</span></button>
-        <button type="button" class="btn danger" data-action="del-tournament" data-id="${t.id}">Eliminar<span class="sr-only"> ${esc(t.title)}</span></button>
+        ${t.isOwner ? `<button type="button" class="btn danger" data-action="del-tournament" data-id="${t.id}">Eliminar<span class="sr-only"> ${esc(t.title)}</span></button>` : ''}
       </div>
     </li>`).join('');
   $('t-empty').hidden = S.list.length > 0;
@@ -485,7 +487,8 @@ async function doSave() {
   const body = serialize(S.T);
   setSaveStatus('Guardando…');
   try {
-    await api(`/tournaments/${tid}`, { method: 'PUT', body });
+    const res = await api(`/tournaments/${tid}`, { method: 'PUT', body: { ...body, baseVersion: S.T.version } });
+    if (S.tid === tid && S.T) S.T.version = res.version;
     if (S.tid === tid && version === S.version) {
       S.dirty = false;
       setSaveStatus('Guardado');
@@ -494,6 +497,11 @@ async function doSave() {
     }
   } catch (err) {
     if (err.status === 401) return showLogin('Tu sesión ha caducado. Vuelve a entrar.', 'error');
+    if (err.status === 409) {
+      // Otra persona guardó antes: no se pisan sus cambios. Tus cambios locales siguen en pantalla sin guardar.
+      S.dirty = true;
+      return setSaveStatus('Otra persona ha cambiado el torneo. Tus cambios no se han guardado: vuelve a la lista y ábrelo de nuevo.', 'error');
+    }
     setSaveStatus(`No se pudo guardar: ${err.message}`, 'error');
   }
 }
@@ -540,6 +548,7 @@ const allAvg = (m) => avg(m.cells.flat());
 function renderTournament() {
   const T = S.T;
   $('tournament-title').textContent = T.title;
+  $('share-open').hidden = !T.isOwner;
   $('tournament-meta').textContent = `${T.teamName} · ${T.gameLabel} · ${T.playersPerTeam} × ${T.playersPerTeam}`;
   renderTabs();
   renderPanel();
@@ -722,6 +731,40 @@ function focusEye(action, idx) {
   const el = document.querySelector(`#matrix-panel [data-action="${action}"][data-idx="${idx}"]`);
   if (el) el.focus();
 }
+
+// ---------- Compartir torneo (solo propietario) ----------
+function renderShare(d) {
+  $('share-members').innerHTML = d.members.length
+    ? d.members.map((m) => `<li>${esc(m.displayName)} <small class="muted">(${esc(m.username)})</small>
+        <button type="button" class="btn danger small" data-action="share-remove" data-id="${m.id}">Quitar acceso<span class="sr-only"> ${esc(m.displayName)}</span></button></li>`).join('')
+    : '<li class="muted">Nadie más tiene acceso.</li>';
+  $('share-candidate').innerHTML = d.candidates.map((c) =>
+    `<option value="${c.id}">${esc(c.displayName)} (${esc(c.username)})</option>`).join('');
+  $('share-form').querySelector('button').disabled = d.candidates.length === 0;
+}
+
+async function openShare() {
+  setMsg($('share-msg'));
+  try {
+    renderShare(await api(`/tournaments/${S.tid}/share`));
+    $('share-dialog').showModal();
+  } catch (err) {
+    setStatus(err.message, 'error');
+  }
+}
+
+$('share-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const userId = Number($('share-candidate').value);
+  if (!userId) return;
+  try {
+    renderShare(await withBusy(e.currentTarget.querySelector('button'), 'Compartiendo…', () =>
+      api(`/tournaments/${S.tid}/share`, { method: 'POST', body: { userId } })));
+    setMsg($('share-msg'), 'Torneo compartido.', 'ok');
+  } catch (err) {
+    setMsg($('share-msg'), err.message, 'error');
+  }
+});
 
 // ---------- Lista de un rival (texto a mano; enlace de BCP si existe) ----------
 function openListDialog(j) {
@@ -1002,6 +1045,13 @@ document.addEventListener('click', async (e) => {
 
   if (!S.T) return;
 
+  if (action === 'share-open') return openShare();
+  if (action === 'share-close') return $('share-dialog').close();
+  if (action === 'share-remove') {
+    return api(`/tournaments/${S.tid}/share/${btn.dataset.id}`, { method: 'DELETE' })
+      .then((d) => { renderShare(d); setMsg($('share-msg'), 'Acceso quitado.', 'ok'); })
+      .catch((err) => setMsg($('share-msg'), err.message, 'error'));
+  }
   if (action === 'legend-open') return $('legend-dialog').showModal();
   if (action === 'legend-close') return $('legend-dialog').close();
   if (action === 'list-open') return openListDialog(Number(btn.dataset.j));
@@ -1211,14 +1261,17 @@ async function loadUsers() {
 }
 
 function renderUsers(users) {
+  S.adminUsers = users;
   $('users-body').innerHTML = users.map((u) => {
     const protectedAccount = u.role === 'superadmin' || u.id === S.user.id;
     const actions = protectedAccount
       ? '<span class="muted">Cuenta protegida</span>'
-      : `${u.invite_pending ? `<button type="button" class="btn small" data-action="adm-invite" data-id="${u.id}">Reenviar invitación<span class="sr-only"> ${esc(u.username)}</span></button>` : ''}
+      : `<button type="button" class="btn small" data-action="adm-edit" data-id="${u.id}">Editar<span class="sr-only"> ${esc(u.username)}</span></button>
+         <button type="button" class="btn small" data-action="adm-toggle" data-id="${u.id}" data-active="${u.active}">${u.active ? 'Desactivar' : 'Reactivar'}<span class="sr-only"> ${esc(u.username)}</span></button>
+         ${u.invite_pending ? `<button type="button" class="btn small" data-action="adm-invite" data-id="${u.id}">Reenviar invitación<span class="sr-only"> ${esc(u.username)}</span></button>` : ''}
          <button type="button" class="btn small" data-action="adm-reset" data-id="${u.id}">Enviar enlace de contraseña<span class="sr-only"> ${esc(u.username)}</span></button>
          <button type="button" class="btn danger small" data-action="adm-del" data-id="${u.id}">Eliminar<span class="sr-only"> ${esc(u.username)}</span></button>`;
-    const estado = u.invite_pending ? 'Invitación pendiente' : 'Activo';
+    const estado = !u.active ? 'Desactivado' : u.invite_pending ? 'Invitación pendiente' : 'Activo';
     const detalle = [u.display_name, u.email, u.team_name].filter(Boolean).map(esc).join(' · ');
     return `<tr>
       <td data-label="Usuario">${esc(u.username)}${u.role === 'superadmin' ? '<span class="badge">Superadmin</span>' : ''}${detalle ? `<br><small class="muted">${detalle}</small>` : ''}</td>
@@ -1239,6 +1292,30 @@ function invitationText(sent, expiresAt) {
   if (!sent) return 'no se pudo enviar el correo. Puedes reenviar la invitación desde la lista.';
   return `invitación enviada. Caduca el ${new Date(expiresAt).toLocaleDateString('es-ES')}.`;
 }
+
+$('user-edit-dialog').addEventListener('click', (e) => {
+  if (e.target.closest('button[data-action="user-edit-close"]')) $('user-edit-dialog').close();
+});
+
+$('user-edit-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = $('user-edit-dialog').dataset.id;
+  const body = {
+    displayName: $('edit-display').value.trim(),
+    email: $('edit-email').value.trim(),
+    teamName: $('edit-team').value.trim(),
+    profile: $('edit-profile').value,
+  };
+  try {
+    await withBusy(e.currentTarget.querySelector('button[type="submit"]'), 'Guardando…', () =>
+      api(`/admin/users/${id}`, { method: 'PATCH', body }));
+    $('user-edit-dialog').close();
+    showUserNotice('Datos del usuario actualizados.', 'ok');
+    await loadUsers();
+  } catch (err) {
+    setMsg($('user-edit-msg'), err.message, 'error');
+  }
+});
 
 $('user-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -1267,6 +1344,26 @@ document.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-action^="adm-"]');
   if (!btn) return;
   const id = btn.dataset.id;
+  if (btn.dataset.action === 'adm-edit') {
+    const u = S.adminUsers.find((x) => String(x.id) === String(id));
+    if (!u) return;
+    $('edit-display').value = u.display_name || '';
+    $('edit-email').value = u.email || '';
+    $('edit-team').value = u.team_name || '';
+    $('edit-profile').value = u.role;
+    $('user-edit-title').textContent = `Editar ${u.username}`;
+    setMsg($('user-edit-msg'));
+    $('user-edit-dialog').dataset.id = id;
+    $('user-edit-dialog').showModal();
+  }
+  if (btn.dataset.action === 'adm-toggle') {
+    const activate = btn.dataset.active !== 'true';
+    const run = () => api(`/admin/users/${id}`, { method: 'PATCH', body: { active: activate } })
+      .then(() => { showUserNotice(activate ? 'Usuario reactivado.' : 'Usuario desactivado. Sus sesiones se han cerrado.', 'ok'); return loadUsers(); })
+      .catch((err) => setMsg($('user-msg'), err.message, 'error'));
+    if (activate) return run();
+    return ask('¿Desactivar este usuario? No podrá entrar ni recibir enlaces hasta que lo reactives. Sus sesiones se cerrarán.', 'Sí, desactivar', run);
+  }
   if (btn.dataset.action === 'adm-invite') {
     withBusy(btn, 'Enviando…', async () => {
       const data = await api(`/admin/users/${id}/invite`, { method: 'POST' });

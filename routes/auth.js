@@ -47,7 +47,7 @@ module.exports = function authRouter(loginLimiter) {
     const user = rows[0];
     const valid = await bcrypt.compare(password, user ? user.password_hash : DUMMY_HASH);
 
-    if (!user || !valid) {
+    if (!user || !valid || !user.active) {
       return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
     }
 
@@ -100,13 +100,13 @@ module.exports = function authRouter(loginLimiter) {
     if (!EMAIL_RE.test(email)) return res.json(generic);
 
     const { rows } = await pool.query(
-      'SELECT id, username, display_name FROM users WHERE lower(email) = $1',
+      'SELECT id, username, display_name FROM users WHERE lower(email) = $1 AND active',
       [email]
     );
     if (rows[0]) {
       try {
         const { token } = await issueToken(rows[0].id, 'reset');
-        const mail = resetEmail({ name: rows[0].display_name || rows[0].username, token });
+        const mail = resetEmail({ name: rows[0].display_name || rows[0].username, username: rows[0].username, token });
         await sendMail({ to: email, subject: mail.subject, text: mail.text });
       } catch (err) {
         console.error('[correo] restablecer contraseña:', err.message);
@@ -131,10 +131,13 @@ module.exports = function authRouter(loginLimiter) {
     const { rows } = await pool.query(
       `UPDATE users
        SET password_hash = $1, must_change_password = false, token_version = token_version + 1
-       WHERE id = $2
+       WHERE id = $2 AND active
        RETURNING *`,
       [await bcrypt.hash(password, 12), used.user_id]
     );
+    if (!rows[0]) {
+      return res.status(400).json({ error: 'Este enlace no es válido. Pide uno nuevo.' });
+    }
     await pool.query(
       `UPDATE user_tokens SET used_at = now() WHERE user_id = $1 AND used_at IS NULL`,
       [used.user_id]

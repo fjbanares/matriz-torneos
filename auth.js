@@ -44,11 +44,11 @@ async function requireAuth(req, res, next) {
   }
 
   const { rows } = await pool.query(
-    'SELECT id, username, role, must_change_password, token_version FROM users WHERE id = $1',
+    'SELECT id, username, role, must_change_password, token_version, active FROM users WHERE id = $1',
     [payload.sub]
   );
   const user = rows[0];
-  if (!user || user.token_version !== payload.v) {
+  if (!user || !user.active || user.token_version !== payload.v) {
     return res.status(401).json({ error: 'Tu sesión ha caducado' });
   }
 

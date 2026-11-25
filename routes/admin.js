@@ -14,7 +14,7 @@ const router = express.Router();
 
 router.get('/users', async (req, res) => {
   const { rows } = await pool.query(`
-    SELECT u.id, u.username, u.email, u.display_name, u.team_name, u.role, u.created_at,
+    SELECT u.id, u.username, u.email, u.display_name, u.team_name, u.role, u.created_at, u.active,
            COUNT(t.id)::int AS tournament_count,
            EXISTS (
              SELECT 1 FROM user_tokens k
@@ -72,7 +72,7 @@ router.post('/users', async (req, res) => {
 async function sendInvitation(user) {
   try {
     const { token, expiresAt } = await issueToken(user.id, 'invite');
-    const mail = inviteEmail({ name: user.display_name || user.username, token });
+    const mail = inviteEmail({ name: user.display_name || user.username, username: user.username, token });
     await sendMail({ to: user.email, subject: mail.subject, text: mail.text });
     return { sent: true, expiresAt };
   } catch (err) {
@@ -86,12 +86,52 @@ router.post('/users/:id/invite', async (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: 'Identificador no válido' });
   const { rows } = await pool.query(
-    `SELECT id, username, email, display_name FROM users WHERE id = $1 AND role = 'user'`,
+    `SELECT id, username, email, display_name FROM users WHERE id = $1 AND role = 'user' AND active`,
     [id]
   );
-  if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
+  if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado o desactivado' });
   if (!rows[0].email) return res.status(400).json({ error: 'Este usuario no tiene email' });
   res.json({ invitation: await sendInvitation(rows[0]) });
+});
+
+// Edita los datos de un usuario, o activa y desactiva su cuenta
+router.patch('/users/:id', async (req, res) => {
+  const id = parseId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Identificador no válido' });
+  if (id === req.user.id) {
+    return res.status(400).json({ error: 'No puedes modificar tu propia cuenta desde aquí' });
+  }
+
+  // Activar o desactivar: cierra las sesiones del usuario al cambiar
+  if (typeof req.body?.active === 'boolean' && Object.keys(req.body).length === 1) {
+    const { rowCount } = await pool.query(
+      'UPDATE users SET active = $1, token_version = token_version + 1 WHERE id = $2',
+      [req.body.active, id]
+    );
+    if (rowCount === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
+    return res.json({ ok: true });
+  }
+
+  const displayName = String(req.body?.displayName ?? '').trim().slice(0, 80);
+  const email = String(req.body?.email ?? '').trim().toLowerCase();
+  const teamName = String(req.body?.teamName ?? '').trim().slice(0, 80);
+  const role = req.body?.profile === 'superadmin' ? 'superadmin' : 'user';
+  if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Introduce un email válido' });
+  if (!displayName) return res.status(400).json({ error: 'Introduce el nombre del usuario' });
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE users SET display_name = $1, email = $2, team_name = $3, role = $4
+       WHERE id = $5
+       RETURNING id, username, email, display_name, team_name, role, active`,
+      [displayName, email, teamName || null, role, id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
+    res.json({ user: rows[0] });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Ya existe un usuario con ese email' });
+    throw err;
+  }
 });
 
 // Envía un enlace para restablecer la contraseña y cierra las sesiones abiertas
@@ -100,16 +140,16 @@ router.post('/users/:id/reset-password', async (req, res) => {
   if (!id) return res.status(400).json({ error: 'Identificador no válido' });
 
   const { rows } = await pool.query(
-    `SELECT id, username, email, display_name FROM users WHERE id = $1 AND role = 'user'`,
+    `SELECT id, username, email, display_name FROM users WHERE id = $1 AND role = 'user' AND active`,
     [id]
   );
-  if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
+  if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado o desactivado' });
   if (!rows[0].email) return res.status(400).json({ error: 'Este usuario no tiene email' });
 
   await pool.query('UPDATE users SET token_version = token_version + 1 WHERE id = $1', [id]);
   try {
     const { token } = await issueToken(id, 'reset');
-    const mail = resetEmail({ name: rows[0].display_name || rows[0].username, token });
+    const mail = resetEmail({ name: rows[0].display_name || rows[0].username, username: rows[0].username, token });
     await sendMail({ to: rows[0].email, subject: mail.subject, text: mail.text });
     res.json({ sent: true });
   } catch (err) {
