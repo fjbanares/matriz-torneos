@@ -20,6 +20,7 @@ const S = {
   activeId: null,    // matriz visible
   pending: null,     // acción pendiente de confirmar
   busyRow: null,     // fila en la que se están calculando sugerencias
+  bcpEvent: null,    // datos del evento leídos en la validación de BCP
   listEdit: null,    // lista de rival que se está editando
   dirty: false,      // hay cambios sin guardar
   version: 0,        // contador de cambios (para saber si un guardado ya está al día)
@@ -84,7 +85,7 @@ async function withBusy(btn, label, fn) {
 }
 
 // ---------- Vistas y navegación ----------
-const VIEWS = ['v-login', 'v-list', 'v-tournament', 'v-admin', 'v-password', 'v-guide'];
+const VIEWS = ['v-login', 'v-list', 'v-tournament', 'v-admin', 'v-password', 'v-guide', 'v-forgot', 'v-set-password'];
 const VIEW_NAV = { 'v-list': 'list', 'v-tournament': 'list', 'v-admin': 'admin', 'v-guide': 'list' };
 
 function showView(id) {
@@ -107,6 +108,12 @@ function setNavRestricted(restricted) {
 
 // ---------- Sesión ----------
 async function start() {
+  // Enlace del email (invitación o recuperación): se abre la pantalla para elegir contraseña
+  const link = location.hash.match(/^#set-password=([^&]+)/);
+  if (link) {
+    history.replaceState(null, '', location.pathname);
+    return showSetPassword(decodeURIComponent(link[1]));
+  }
   try {
     const { user } = await api('/auth/me');
     S.user = user;
@@ -140,6 +147,65 @@ function showPassword() {
   showView('v-password');
   $('password-title').focus();
 }
+
+// ---------- Cuentas: elegir contraseña y recuperarla por email ----------
+let setToken = null;
+
+function showSetPassword(token) {
+  setToken = token;
+  $('set-form').reset();
+  setMsg($('set-msg'));
+  $('set-expired').hidden = true;
+  showView('v-set-password');
+  $('set-title').focus();
+}
+
+$('open-forgot').addEventListener('click', () => {
+  setMsg($('forgot-msg'));
+  showView('v-forgot');
+  $('forgot-title').focus();
+});
+$('forgot-back').addEventListener('click', () => showLogin());
+$('set-to-forgot').addEventListener('click', () => {
+  setToken = null;
+  showView('v-forgot');
+  $('forgot-title').focus();
+});
+
+$('forgot-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = e.currentTarget.querySelector('button');
+  try {
+    const data = await withBusy(btn, 'Enviando…', () =>
+      api('/auth/forgot', { method: 'POST', body: { email: $('forgot-email').value.trim() } }));
+    setMsg($('forgot-msg'), data.message, 'ok');
+  } catch (err) {
+    setMsg($('forgot-msg'), err.message, 'error');
+  }
+});
+
+$('set-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const pass = $('set-password').value;
+  const confirm = $('set-confirm').value;
+  if (pass.length < 8) return setMsg($('set-msg'), 'La contraseña debe tener al menos 8 caracteres.', 'error');
+  if (pass !== confirm) return setMsg($('set-msg'), 'Las dos contraseñas no coinciden.', 'error');
+  if (!setToken) return setMsg($('set-msg'), 'Este enlace no es válido. Pide uno nuevo.', 'error');
+
+  const btn = e.currentTarget.querySelector('button');
+  try {
+    const { user } = await withBusy(btn, 'Guardando…', () =>
+      api('/auth/set-password', { method: 'POST', body: { token: setToken, password: pass } }));
+    setToken = null;
+    S.user = user;
+    $('set-form').reset();
+    await enterApp();
+  } catch (err) {
+    setMsg($('set-msg'), err.message, 'error');
+    // Si el enlace ya no sirve, se ofrece pedir uno nuevo
+    if (/no es válido|caducado|usado/i.test(err.message)) $('set-expired').hidden = false;
+  }
+});
 
 $('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -284,7 +350,7 @@ $('guide-back').addEventListener('click', () => showList());
 $('new-form').addEventListener('change', (e) => {
   if (e.target.name === 'mode') syncNewMode();
 });
-$('nt-link').addEventListener('input', () => { S.bcpReady = false; syncNewMode(); });
+$('nt-link').addEventListener('input', () => { S.bcpReady = false; S.bcpEvent = null; syncNewMode(); });
 
 // Paso 1 (BCP): leer el evento y mostrar sus equipos
 $('bcp-read').addEventListener('click', async () => {
@@ -296,6 +362,7 @@ $('bcp-read').addEventListener('click', async () => {
     const data = await withBusy(btn, 'Leyendo evento…', () =>
       api('/tournaments/bcp/preview', { method: 'POST', body: { link } }));
     showBcpDetails(null);
+    S.bcpEvent = data.event || null;
     $('bcp-title').textContent = `${data.title} · ${data.teams.length} equipos`;
     $('nt-bcp-team').innerHTML = data.teams.map((t) =>
       `<option value="${esc(t.name)}">${esc(t.name)} (${t.playerCount} jugadores)</option>`).join('');
@@ -324,7 +391,7 @@ $('new-form').addEventListener('submit', async (e) => {
       const { id, warnings } = await withBusy($('new-submit'), 'Importando…', () =>
         api('/tournaments/bcp/import', {
           method: 'POST',
-          body: { link: $('nt-link').value.trim(), teamName: $('nt-bcp-team').value },
+          body: { link: $('nt-link').value.trim(), teamName: $('nt-bcp-team').value, event: S.bcpEvent },
         }));
       closeNewDialog(false);
       await openTournament(id);
@@ -1148,36 +1215,48 @@ function renderUsers(users) {
     const protectedAccount = u.role === 'superadmin' || u.id === S.user.id;
     const actions = protectedAccount
       ? '<span class="muted">Cuenta protegida</span>'
-      : `<button type="button" class="btn small" data-action="adm-reset" data-id="${u.id}">Restablecer<span class="sr-only"> ${esc(u.username)}</span></button>
+      : `${u.invite_pending ? `<button type="button" class="btn small" data-action="adm-invite" data-id="${u.id}">Reenviar invitación<span class="sr-only"> ${esc(u.username)}</span></button>` : ''}
+         <button type="button" class="btn small" data-action="adm-reset" data-id="${u.id}">Enviar enlace de contraseña<span class="sr-only"> ${esc(u.username)}</span></button>
          <button type="button" class="btn danger small" data-action="adm-del" data-id="${u.id}">Eliminar<span class="sr-only"> ${esc(u.username)}</span></button>`;
+    const estado = u.invite_pending ? 'Invitación pendiente' : 'Activo';
+    const detalle = [u.display_name, u.email, u.team_name].filter(Boolean).map(esc).join(' · ');
     return `<tr>
-      <td data-label="Usuario">${esc(u.username)}${u.role === 'superadmin' ? '<span class="badge">Superadmin</span>' : ''}</td>
-      <td data-label="Estado">${u.must_change_password ? 'Contraseña temporal' : 'Activo'}</td>
+      <td data-label="Usuario">${esc(u.username)}${u.role === 'superadmin' ? '<span class="badge">Superadmin</span>' : ''}${detalle ? `<br><small class="muted">${detalle}</small>` : ''}</td>
+      <td data-label="Estado">${estado}</td>
       <td data-label="Torneos">${u.tournament_count}</td>
       <td data-label="Acciones">${actions}</td>
     </tr>`;
   }).join('');
 }
 
-function showTempPassword(username, password, message) {
-  setMsg($('user-msg'), message, 'ok');
-  const box = $('temp-box');
-  box.innerHTML = `<p>Contraseña temporal de <strong>${esc(username)}</strong>:</p>
-    <p><code class="temp">${esc(password)}</code></p>
-    <p class="muted">Entrégala por un canal seguro. No volverá a mostrarse.</p>`;
-  box.hidden = false;
-  box.focus();
+// Muestra un aviso de cuentas en el bloque de usuarios (no contraseñas)
+function showUserNotice(message, type = 'ok') {
+  setMsg($('user-msg'), message, type);
+  $('temp-box').hidden = true;
+}
+
+function invitationText(sent, expiresAt) {
+  if (!sent) return 'no se pudo enviar el correo. Puedes reenviar la invitación desde la lista.';
+  return `invitación enviada. Caduca el ${new Date(expiresAt).toLocaleDateString('es-ES')}.`;
 }
 
 $('user-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = e.currentTarget;
-  const input = $('new-username');
+  const body = {
+    username: $('new-username').value.trim(),
+    displayName: $('new-display').value.trim(),
+    email: $('new-email').value.trim(),
+    teamName: $('new-team').value.trim(),
+    profile: $('new-profile').value,
+  };
   try {
     const data = await withBusy(form.querySelector('button'), 'Creando…', () =>
-      api('/admin/users', { method: 'POST', body: { username: input.value.trim() } }));
-    input.value = '';
-    showTempPassword(data.user.username, data.temporaryPassword, `Usuario "${data.user.username}" creado.`);
+      api('/admin/users', { method: 'POST', body }));
+    form.reset();
+    const inv = data.invitation;
+    showUserNotice(`Usuario "${data.user.username}" creado: ${invitationText(inv.sent, inv.expiresAt)}`,
+      inv.sent ? 'ok' : 'error');
     await loadUsers();
   } catch (err) {
     setMsg($('user-msg'), err.message, 'error');
@@ -1188,11 +1267,19 @@ document.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-action^="adm-"]');
   if (!btn) return;
   const id = btn.dataset.id;
+  if (btn.dataset.action === 'adm-invite') {
+    withBusy(btn, 'Enviando…', async () => {
+      const data = await api(`/admin/users/${id}/invite`, { method: 'POST' });
+      showUserNotice(`Invitación: ${invitationText(data.invitation.sent, data.invitation.expiresAt)}`,
+        data.invitation.sent ? 'ok' : 'error');
+      await loadUsers();
+    }).catch((err) => setMsg($('user-msg'), err.message, 'error'));
+  }
   if (btn.dataset.action === 'adm-reset') {
-    ask('¿Restablecer la contraseña? Se generará una temporal y sus sesiones se cerrarán.', 'Sí, restablecer', async () => {
+    ask('¿Enviar un enlace para restablecer la contraseña? Sus sesiones abiertas se cerrarán.', 'Sí, enviar', async () => {
       try {
-        const data = await api(`/admin/users/${id}/reset-password`, { method: 'POST' });
-        showTempPassword(data.username, data.temporaryPassword, `Contraseña restablecida para ${data.username}.`);
+        await api(`/admin/users/${id}/reset-password`, { method: 'POST' });
+        showUserNotice('Enlace de restablecimiento enviado por correo.', 'ok');
         await loadUsers();
       } catch (err) { setMsg($('user-msg'), err.message, 'error'); }
     });

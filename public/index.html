@@ -47,7 +47,48 @@
             <button class="btn primary" type="submit">Entrar</button>
             <p id="login-msg" class="msg" role="status"></p>
           </form>
+          <p class="forgot-link"><button type="button" class="linklike" id="open-forgot">¿Has olvidado tu contraseña?</button></p>
           <p class="muted">Las cuentas las gestiona el administrador.</p>
+        </div>
+      </section>
+
+      <!-- ¿HAS OLVIDADO TU CONTRASEÑA? (envía un enlace por email) -->
+      <section class="view view-center" id="v-forgot" aria-labelledby="forgot-title" hidden>
+        <div class="panel narrow">
+          <img src="/img/logo.png" alt="" class="logo-big">
+          <h1 id="forgot-title" tabindex="-1">Restablecer contraseña</h1>
+          <p class="muted">Escribe el email de tu cuenta. Si está registrado, te enviaremos un enlace para elegir una contraseña nueva.</p>
+          <form id="forgot-form">
+            <div class="field">
+              <label for="forgot-email">Email</label>
+              <input id="forgot-email" type="email" autocomplete="email" maxlength="120" required>
+            </div>
+            <button class="btn primary" type="submit">Enviar enlace</button>
+            <p id="forgot-msg" class="msg" role="status"></p>
+          </form>
+          <p class="forgot-link"><button type="button" class="linklike" id="forgot-back">← Volver al acceso</button></p>
+        </div>
+      </section>
+
+      <!-- ELEGIR CONTRASEÑA (desde el enlace del email) -->
+      <section class="view view-center" id="v-set-password" aria-labelledby="set-title" hidden>
+        <div class="panel narrow">
+          <img src="/img/logo.png" alt="" class="logo-big">
+          <h1 id="set-title" tabindex="-1">Elige tu contraseña</h1>
+          <p class="muted">Mínimo 8 caracteres. Este enlace solo se puede usar una vez.</p>
+          <form id="set-form">
+            <div class="field">
+              <label for="set-password">Nueva contraseña</label>
+              <input id="set-password" type="password" autocomplete="new-password" minlength="8" required>
+            </div>
+            <div class="field">
+              <label for="set-confirm">Repite la contraseña</label>
+              <input id="set-confirm" type="password" autocomplete="new-password" minlength="8" required>
+            </div>
+            <button class="btn primary" type="submit">Guardar y entrar</button>
+            <p id="set-msg" class="msg" role="status"></p>
+          </form>
+          <p class="forgot-link" id="set-expired" hidden><button type="button" class="linklike" id="set-to-forgot">Pedir un enlace nuevo</button></p>
         </div>
       </section>
 
@@ -94,7 +135,27 @@
                 <input id="new-username" maxlength="30" required>
                 <small class="hint">De 3 a 30 caracteres: letras, números, punto, guion o guion bajo.</small>
               </div>
-              <button class="btn primary" type="submit">Crear usuario</button>
+              <div class="field">
+                <label for="new-display">Nombre</label>
+                <input id="new-display" maxlength="80" required>
+              </div>
+              <div class="field">
+                <label for="new-email">Email</label>
+                <input id="new-email" type="email" maxlength="120" required>
+                <small class="hint">Recibirá aquí la invitación para elegir su contraseña.</small>
+              </div>
+              <div class="field">
+                <label for="new-team">Equipo</label>
+                <input id="new-team" maxlength="80">
+              </div>
+              <div class="field">
+                <label for="new-profile">Perfil</label>
+                <select id="new-profile">
+                  <option value="user">Usuario</option>
+                  <option value="superadmin">Superadministrador</option>
+                </select>
+              </div>
+              <button class="btn primary" type="submit">Crear y enviar invitación</button>
             </form>
             <p id="user-msg" class="msg" role="status"></p>
             <div id="temp-box" class="temp-box" tabindex="-1" hidden></div>

@@ -6,6 +6,7 @@ const { validateTournamentInput, validateState } = require('../validate');
 const { replaceState } = require('../store');
 const { isBcpEventUrl } = require('../validate');
 const { fetchEvent, BcpError } = require('../bcp/fetch');
+const { sanitizeBcpEvent } = require('../validate');
 const { buildFromImport, summarize } = require('../bcp/normalize');
 
 // Montado en /api/tournaments con requireAuth. Cada usuario solo accede a sus torneos.
@@ -180,7 +181,8 @@ router.post('/bcp/preview', async (req, res) => {
   if (!isBcpEventUrl(link)) return res.status(400).json({ error: BCP_LINK_ERROR });
   try {
     const data = await fetchEvent(link);
-    res.json(summarize(data));
+    // Se devuelven también los datos completos: la importación no tiene que volver a leer BCP
+    res.json({ ...summarize(data), event: { title: data.title, teams: data.teams } });
   } catch (err) {
     if (err instanceof BcpError) return res.status(err.status).json({ error: err.message, details: err.details });
     throw err;
@@ -194,12 +196,18 @@ router.post('/bcp/import', async (req, res) => {
   if (!isBcpEventUrl(link)) return res.status(400).json({ error: BCP_LINK_ERROR });
   if (!teamName || teamName.length > 80) return res.status(400).json({ error: 'Elige tu equipo' });
 
-  let data;
-  try {
-    data = await fetchEvent(link);
-  } catch (err) {
-    if (err instanceof BcpError) return res.status(err.status).json({ error: err.message, details: err.details });
-    throw err;
+  // Si el cliente envía los datos leídos al validar, se usan (sin abrir el navegador)
+  let data = req.body?.event ? sanitizeBcpEvent(req.body.event) : null;
+  if (req.body?.event && !data) {
+    return res.status(400).json({ error: 'Los datos del evento no son válidos. Vuelve a leer el evento.' });
+  }
+  if (!data) {
+    try {
+      data = await fetchEvent(link);
+    } catch (err) {
+      if (err instanceof BcpError) return res.status(err.status).json({ error: err.message, details: err.details });
+      throw err;
+    }
   }
 
   const built = buildFromImport(data, teamName, '40k');

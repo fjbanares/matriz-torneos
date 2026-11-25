@@ -91,6 +91,9 @@ En el panel del proyecto, ve a **Settings → Environment Variables** y añade, 
 | `NODE_ENV` | `production` |
 | `PORT` | `80` |
 | `PLAYWRIGHT_BROWSERS_PATH` | `/ms-playwright` |
+| `BREVO_API_KEY` | Clave de API de Brevo (Settings → SMTP & API) |
+| `MAIL_FROM` | `fjbanares@gmail.com` (debe estar verificado como remitente en Brevo) |
+| `APP_URL` | La URL pública de la aplicación, sin barra final (por ejemplo `https://cobrador-torneos.vercel.app`) |
 
 ## 7 · Memoria y duración
 

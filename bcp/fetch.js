@@ -58,6 +58,52 @@ async function saveDebug(page) {
   await page.screenshot({ path: path.join(dir, 'bcp-roster.png'), fullPage: true }).catch(() => {});
 }
 
+// Texto del paginador ("1-32 of 32"), para comprobar cuántos elementos se muestran
+async function pagerText(page) {
+  return page.evaluate(() => {
+    const hit = Array.from(document.querySelectorAll('p, span, div'))
+      .map((e) => (e.innerText || '').trim())
+      .find((t) => /^\d+\s*-\s*\d+ of \d+$/.test(t));
+    return hit || null;
+  });
+}
+
+// Pone "Items per page" en "All" para que la lista de equipos y jugadores esté completa en una sola página
+async function showAllItems(page, details) {
+  const label = page.getByText(/items per page/i).first();
+  if (!(await label.count())) { details.itemsPerPage = 'etiqueta no encontrada'; return; }
+
+  details.pagerBefore = await pagerText(page);
+
+  // Selector nativo (<select>)
+  const native = label.locator('xpath=following::select[1]');
+  if (await native.count()) {
+    const hasAll = await native.first().locator('option', { hasText: /^\s*All\s*$/i }).count();
+    if (hasAll) {
+      await native.first().selectOption({ label: /^\s*All\s*$/i });
+      await page.waitForLoadState('networkidle').catch(() => {});
+      details.itemsPerPage = 'All';
+      details.pagerAfter = await pagerText(page);
+      return;
+    }
+  }
+
+  // Selector personalizado (MUI): se abre y se elige la opción All
+  const trigger = label.locator('xpath=following::*[@role="combobox" or @role="button" or @aria-haspopup="listbox"][1]');
+  if (!(await trigger.count())) { details.itemsPerPage = 'selector no encontrado'; return; }
+  await trigger.first().click();
+  const all = page.getByRole('option', { name: /^\s*All\s*$/i }).first();
+  if (!(await all.count())) {
+    details.itemsPerPage = 'opción All no disponible';
+    await page.keyboard.press('Escape').catch(() => {});
+    return;
+  }
+  await all.click();
+  await page.waitForLoadState('networkidle').catch(() => {});
+  details.itemsPerPage = 'All';
+  details.pagerAfter = await pagerText(page);
+}
+
 async function fetchEvent(url) {
   if (!isBcpEventUrl(url)) {
     throw new BcpError('El enlace debe ser de un evento de Best Coast Pairings (https://www.bestcoastpairings.com/event/...)', 400);
@@ -88,6 +134,13 @@ async function fetchEvent(url) {
     if (details.rosterTabFound) {
       await rosterTab.first().click();
       await page.waitForLoadState('networkidle').catch(() => {});
+    }
+
+    stage = 'Items per page: All';
+    try {
+      await showAllItems(page, details);
+    } catch (err) {
+      details.itemsPerPage = 'error: ' + String(err.message).split('\n')[0];
     }
 
     stage = 'espera de los datos';

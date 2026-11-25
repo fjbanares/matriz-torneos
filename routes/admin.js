@@ -1,7 +1,11 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const { pool } = require('../db');
-const { USERNAME_RE, generateTempPassword, parseId } = require('../auth');
+const { USERNAME_RE, parseId } = require('../auth');
+const { sendMail } = require('../mail/brevo');
+const { issueToken } = require('../mail/tokens');
+const { inviteEmail, resetEmail } = require('../mail/templates');
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const { validateMetaRows, HEADER } = require('../meta/validate');
 const { GAMES } = require('../config');
 
@@ -10,8 +14,12 @@ const router = express.Router();
 
 router.get('/users', async (req, res) => {
   const { rows } = await pool.query(`
-    SELECT u.id, u.username, u.role, u.must_change_password, u.created_at,
-           COUNT(t.id)::int AS tournament_count
+    SELECT u.id, u.username, u.email, u.display_name, u.team_name, u.role, u.created_at,
+           COUNT(t.id)::int AS tournament_count,
+           EXISTS (
+             SELECT 1 FROM user_tokens k
+             WHERE k.user_id = u.id AND k.purpose = 'invite' AND k.used_at IS NULL AND k.expires_at > now()
+           ) AS invite_pending
     FROM users u
     LEFT JOIN tournaments t ON t.owner_id = u.id
     GROUP BY u.id
@@ -20,48 +28,94 @@ router.get('/users', async (req, res) => {
   res.json({ users: rows });
 });
 
-// Crea un usuario con contraseña temporal. La contraseña se devuelve UNA vez.
+// Crea un usuario y le envía la invitación por email. No se muestra ninguna contraseña.
 router.post('/users', async (req, res) => {
   const username = String(req.body?.username ?? '').trim();
+  const email = String(req.body?.email ?? '').trim().toLowerCase();
+  const displayName = String(req.body?.displayName ?? '').trim().slice(0, 80);
+  const teamName = String(req.body?.teamName ?? '').trim().slice(0, 80);
+  const profile = req.body?.profile === 'superadmin' ? 'superadmin' : 'user';
+
   if (!USERNAME_RE.test(username)) {
     return res.status(400).json({
       error: 'El usuario debe tener de 3 a 30 caracteres: letras, números, punto, guion o guion bajo',
     });
   }
+  if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Introduce un email válido' });
+  if (!displayName) return res.status(400).json({ error: 'Introduce el nombre del usuario' });
 
-  const temporaryPassword = generateTempPassword();
+  // Contraseña aleatoria que nadie conoce: la cuenta solo se activa al elegir contraseña desde el enlace
+  const placeholder = await bcrypt.hash(require('crypto').randomBytes(32).toString('hex'), 12);
+  let user;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO users (username, password_hash, must_change_password)
-       VALUES ($1, $2, true)
-       RETURNING id, username, role, must_change_password, created_at`,
-      [username, await bcrypt.hash(temporaryPassword, 12)]
+      `INSERT INTO users (username, email, display_name, team_name, role, password_hash, must_change_password)
+       VALUES ($1, $2, $3, $4, $5, $6, false)
+       RETURNING id, username, email, display_name, team_name, role, created_at`,
+      [username, email, displayName, teamName || null, profile, placeholder]
     );
-    res.status(201).json({ user: rows[0], temporaryPassword });
+    user = rows[0];
   } catch (err) {
     if (err.code === '23505') {
-      return res.status(409).json({ error: 'Ese nombre de usuario ya existe' });
+      return res.status(409).json({
+        error: err.constraint === 'users_email_key' ? 'Ya existe un usuario con ese email' : 'Ese nombre de usuario ya existe',
+      });
     }
     throw err;
   }
+
+  const invitation = await sendInvitation(user);
+  res.status(201).json({ user, invitation });
 });
 
-// Restablece la contraseña de un usuario normal y cierra sus sesiones
+// Envía (o reenvía) la invitación. Reenviar anula el enlace anterior.
+async function sendInvitation(user) {
+  try {
+    const { token, expiresAt } = await issueToken(user.id, 'invite');
+    const mail = inviteEmail({ name: user.display_name || user.username, token });
+    await sendMail({ to: user.email, subject: mail.subject, text: mail.text });
+    return { sent: true, expiresAt };
+  } catch (err) {
+    console.error('[correo] invitación:', err.message);
+    return { sent: false, error: 'No se pudo enviar el correo. Puedes reenviar la invitación más tarde.' };
+  }
+}
+
+// Reenvía la invitación a un usuario que todavía no ha elegido contraseña
+router.post('/users/:id/invite', async (req, res) => {
+  const id = parseId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Identificador no válido' });
+  const { rows } = await pool.query(
+    `SELECT id, username, email, display_name FROM users WHERE id = $1 AND role = 'user'`,
+    [id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
+  if (!rows[0].email) return res.status(400).json({ error: 'Este usuario no tiene email' });
+  res.json({ invitation: await sendInvitation(rows[0]) });
+});
+
+// Envía un enlace para restablecer la contraseña y cierra las sesiones abiertas
 router.post('/users/:id/reset-password', async (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: 'Identificador no válido' });
 
-  const temporaryPassword = generateTempPassword();
   const { rows } = await pool.query(
-    `UPDATE users
-     SET password_hash = $1, must_change_password = true, token_version = token_version + 1
-     WHERE id = $2 AND role = 'user'
-     RETURNING username`,
-    [await bcrypt.hash(temporaryPassword, 12), id]
+    `SELECT id, username, email, display_name FROM users WHERE id = $1 AND role = 'user'`,
+    [id]
   );
+  if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
+  if (!rows[0].email) return res.status(400).json({ error: 'Este usuario no tiene email' });
 
-  if (rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
-  res.json({ username: rows[0].username, temporaryPassword });
+  await pool.query('UPDATE users SET token_version = token_version + 1 WHERE id = $1', [id]);
+  try {
+    const { token } = await issueToken(id, 'reset');
+    const mail = resetEmail({ name: rows[0].display_name || rows[0].username, token });
+    await sendMail({ to: rows[0].email, subject: mail.subject, text: mail.text });
+    res.json({ sent: true });
+  } catch (err) {
+    console.error('[correo] restablecer contraseña (admin):', err.message);
+    res.status(502).json({ error: 'No se pudo enviar el correo de restablecimiento.' });
+  }
 });
 
 // Elimina un usuario y, por ON DELETE CASCADE, también sus torneos

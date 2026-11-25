@@ -1,7 +1,23 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const rateLimit = require('express-rate-limit');
 const { pool } = require('../db');
 const { requireAuth, issueSession, clearSession, MIN_PASSWORD_LENGTH } = require('../auth');
+const { sendMail } = require('../mail/brevo');
+const { issueToken, consumeToken } = require('../mail/tokens');
+const { resetEmail } = require('../mail/templates');
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const GENERIC_FORGOT = 'Si el correo está registrado, recibirás un enlace para restablecer la contraseña.';
+
+// Recuperación: pocas peticiones por IP para no saturar bandejas ni la cuenta de correo
+const forgotLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas peticiones. Inténtalo de nuevo más tarde.' },
+});
 
 // Hash ficticio: hace que el tiempo de respuesta sea igual exista o no el usuario
 const DUMMY_HASH = bcrypt.hashSync('contraseña-ficticia', 12);
@@ -23,7 +39,11 @@ module.exports = function authRouter(loginLimiter) {
       return res.status(400).json({ error: 'Introduce usuario y contraseña' });
     }
 
-    const { rows } = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    // Se puede entrar con el nombre de usuario o con el email
+    const { rows } = await pool.query(
+      'SELECT * FROM users WHERE username = $1 OR lower(email) = lower($1)',
+      [username]
+    );
     const user = rows[0];
     const valid = await bcrypt.compare(password, user ? user.password_hash : DUMMY_HASH);
 
@@ -71,6 +91,57 @@ module.exports = function authRouter(loginLimiter) {
 
     issueSession(res, updated[0]);
     res.json({ user: publicUser(updated[0]) });
+  });
+
+  // ¿Has olvidado tu contraseña? Responde lo mismo exista o no el correo.
+  router.post('/forgot', forgotLimiter, async (req, res) => {
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    const generic = { ok: true, message: GENERIC_FORGOT };
+    if (!EMAIL_RE.test(email)) return res.json(generic);
+
+    const { rows } = await pool.query(
+      'SELECT id, username, display_name FROM users WHERE lower(email) = $1',
+      [email]
+    );
+    if (rows[0]) {
+      try {
+        const { token } = await issueToken(rows[0].id, 'reset');
+        const mail = resetEmail({ name: rows[0].display_name || rows[0].username, token });
+        await sendMail({ to: email, subject: mail.subject, text: mail.text });
+      } catch (err) {
+        console.error('[correo] restablecer contraseña:', err.message);
+      }
+    }
+    res.json(generic);
+  });
+
+  // Elige contraseña con un enlace de invitación o de recuperación (un solo uso)
+  router.post('/set-password', async (req, res) => {
+    const password = String(req.body?.password ?? '');
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json({ error: `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres` });
+    }
+
+    const used = await consumeToken(req.body?.token);
+    if (!used) {
+      return res.status(400).json({ error: 'El enlace no es válido, ha caducado o ya se ha usado. Pide uno nuevo.' });
+    }
+
+    // Cambiar la contraseña cierra las sesiones abiertas y anula otros enlaces de recuperación pendientes
+    const { rows } = await pool.query(
+      `UPDATE users
+       SET password_hash = $1, must_change_password = false, token_version = token_version + 1
+       WHERE id = $2
+       RETURNING *`,
+      [await bcrypt.hash(password, 12), used.user_id]
+    );
+    await pool.query(
+      `UPDATE user_tokens SET used_at = now() WHERE user_id = $1 AND used_at IS NULL`,
+      [used.user_id]
+    );
+
+    issueSession(res, rows[0]);
+    res.json({ user: publicUser(rows[0]) });
   });
 
   return router;

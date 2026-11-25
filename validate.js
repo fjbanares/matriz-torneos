@@ -153,4 +153,24 @@ function isBcpEventUrl(value) {
   }
 }
 
-module.exports = { validateTournamentInput, validateState, isHttpUrl, isBcpEventUrl, isBcpListUrl };
+// Datos del evento leídos en la validación, devueltos por el cliente al importar.
+// Se revisan y se limitan antes de usarlos: no se confía en ellos sin más.
+function sanitizeBcpEvent(ev) {
+  if (!ev || typeof ev !== 'object' || !Array.isArray(ev.teams) || ev.teams.length === 0 || ev.teams.length > 40) return null;
+  const str = (v, max) => String(v ?? '').slice(0, max);
+  const teams = ev.teams.map((t) => ({
+    name: str(t && t.name, 120),
+    players: Array.isArray(t && t.players)
+      ? t.players.slice(0, 40).map((p) => ({
+        name: str(p && p.name, 200),
+        army: str(p && p.army, 80),
+        disposition: str(p && p.disposition, 80),
+        listUrl: p && p.listUrl && isBcpListUrl(String(p.listUrl)) ? String(p.listUrl) : null,
+      }))
+      : [],
+  })).filter((t) => t.name);
+  if (teams.length === 0) return null;
+  return { title: str(ev.title, 200), teams };
+}
+
+module.exports = { validateTournamentInput, validateState, isHttpUrl, isBcpEventUrl, isBcpListUrl, sanitizeBcpEvent };
